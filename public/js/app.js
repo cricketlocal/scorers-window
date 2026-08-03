@@ -1,9 +1,10 @@
 /**
- * Scorers Window — hash SPA
- * Routes: / #/setup #/go-live #/live #/obs (YouTube via OBS) #/overlay #/watch #/board
+ * Scorers Window — phone-first hash SPA
+ * Ideal: open link → pick game → Go Live (stream key saved once in Setup).
+ * Routes: / #/go-live #/live #/setup #/watch #/obs #/overlay
  */
 (function () {
-  const { SWHub, SWOverlay, SWDemo } = window;
+  const { SWHub, SWOverlay, SWDemo, SWStream } = window;
   const main = () => document.getElementById("main");
   const hubStatusEl = () => document.getElementById("hub-status");
 
@@ -226,105 +227,80 @@
     setNav("home");
     const s = SWHub.loadSettings();
     const demo = SWHub.getDemoMatch();
-    const hasKey = !!s.youtubeStreamKey;
-    const hasYt = !!s.youtubeVideoId;
-    const hasMatch = !!s.selectedMatchId;
+    const hasKey = SWStream?.hasStreamKey?.() || !!(s.youtubeStreamKey || "").trim();
+    const keyMask = SWStream?.streamKeyMasked?.() || "";
     const demoActive = demo && (s.selectedMatchId === demo.id || SWDemo?.isDemoId?.(s.selectedMatchId));
 
     main().innerHTML = `
       <h1>Scorers Window</h1>
-      <p class="lead">Phone / PWA → pick match → Go Live → camera + <strong>our</strong> Play-Cricket overlay → YouTube.</p>
+      <p class="lead phone-flow-lead">
+        <strong>On the phone:</strong> open this site → pick the game → <strong>Go Live</strong>.<br/>
+        Stream key is entered <strong>once</strong> in Setup — not every match.
+      </p>
+
+      <div class="card phone-hero-card">
+        <h2>Match day (3 taps)</h2>
+        <ol class="obs-steps phone-flow-steps">
+          <li><strong>Setup</strong> (once) — paste YouTube stream key</li>
+          <li><strong>Go Live</strong> — select game (or demo)</li>
+          <li>Tap <strong>Go Live</strong> — camera + scores on air</li>
+        </ol>
+        <div class="row-actions">
+          <a class="btn btn-live" href="#/go-live" style="min-width:160px;font-size:1.05rem">Go Live</a>
+          <a class="btn ${hasKey ? "btn-ghost" : "btn-primary"}" href="#/setup">${hasKey ? "Setup ✓" : "Setup stream key"}</a>
+        </div>
+        <p class="muted" style="margin:12px 0 0;font-size:0.85rem">
+          Stream key: ${hasKey ? `<strong class="mono">${esc(keyMask)}</strong> saved on this phone` : "<strong>not set yet</strong> — one-time in Setup"}
+        </p>
+      </div>
 
       <div class="card">
-        <h2>Weekend demo score</h2>
-        <p class="muted" style="margin:0 0 8px">
-          <strong>${esc(demo?.date || "Sat 1 Aug 2026")}</strong> · ${esc(demo?.competition || "DCCL Div 3 South")}
+        <h2>Quick select demo</h2>
+        <p class="muted" style="margin:0 0 8px;font-size:0.9rem">
+          ${esc(demo?.homeTeam || "LPCC")} vs ${esc(demo?.awayTeam || "Brailsford")} ·
+          <span style="color:var(--accent);font-weight:700">${esc(demo?.homeScore || "")} · ${esc(demo?.awayScore || "")}</span>
         </p>
-        <p style="margin:0 0 4px;font-weight:700">${esc(demo?.homeTeam || "LPCC")} <span class="muted">vs</span> ${esc(demo?.awayTeam || "Brailsford")}</p>
-        <p style="margin:0 0 8px;color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums">
-          ${esc(demo?.homeScore || "—")} &nbsp;·&nbsp; ${esc(demo?.awayScore || "—")}
-        </p>
-        <p class="muted" style="margin:0 0 12px;font-size:0.85rem">${esc(demo?.status || "")} · Play-Cricket #${esc(demo?.id || "")}</p>
         <div class="row-actions">
           <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <a class="btn btn-live" href="#/live" id="btn-open-live-demo">Live cam + score</a>
-          <a class="btn btn-ghost" href="#/go-live">Go Live setup</a>
+          <a class="btn btn-ghost" href="#/go-live">Then Go Live →</a>
         </div>
         <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem">
-          ${demoActive ? "✓ Demo match is selected" : "Not selected yet — tap the button above"}
+          ${demoActive ? "✓ Demo selected" : "Optional — or pick on Go Live"}
         </p>
       </div>
 
       <div class="card">
-        <h2>Setup checklist</h2>
-        <ul class="checklist">
-          <li class="${s.hubUrl ? "done" : ""}"><span class="dot"></span><span>Hub connected (${esc(shortUrl(s.hubUrl))})</span></li>
-          <li class="${hasKey ? "done" : ""}"><span class="dot"></span><span>YouTube stream key saved ${hasKey ? "" : "(optional for MVP overlay)"}</span></li>
-          <li class="${hasYt ? "done" : ""}"><span class="dot"></span><span>YouTube video ID for embed ${hasYt ? `(${esc(s.youtubeVideoId)})` : ""}</span></li>
-          <li class="${hasMatch || demoActive ? "done" : ""}"><span class="dot"></span><span>Match selected ${demoActive ? "(weekend demo)" : hasMatch ? `(#${esc(s.selectedMatchId)})` : ""}</span></li>
-        </ul>
+        <h2>Fans (no setup)</h2>
+        <p class="muted" style="margin:0 0 12px">Share the Watch link — scores only, no stream key.</p>
         <div class="row-actions">
-          <a class="btn btn-primary" href="#/setup">Setup</a>
-          <a class="btn btn-live" href="#/go-live">Go Live</a>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Phone: camera + score</h2>
-        <p class="muted" style="margin:0 0 12px">Full-screen rear camera with the scoreboard on top. This is what you use on the broadcast phone.</p>
-        <div class="row-actions">
-          <a class="btn btn-live" href="#/live">Open Live cam</a>
-        </div>
-      </div>
-
-      <div class="card demo-select-card">
-        <h2>YouTube live + overlay (OBS)</h2>
-        <p class="muted" style="margin:0 0 12px">
-          Burn our scoreboard into the YouTube feed (live <strong>and</strong> watch-later) using OBS Browser Source + stream key.
-        </p>
-        <div class="row-actions">
-          <a class="btn btn-primary" href="#/obs">OBS → YouTube setup</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy Browser Source URL</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Share with fans (no settings)</h2>
-        <p class="muted" style="margin:0 0 12px">
-          Viewers open this link — scores only, no setup. Optional: add
-          <span class="mono">?v=YOUTUBE_ID</span> to embed the stream too.
-        </p>
-        <p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all" id="watch-url-display"></p>
-        <div class="row-actions">
-          <a class="btn btn-primary" href="#/watch">Open Watch</a>
+          <a class="btn" href="#/watch">Open Watch</a>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-watch">Copy Watch link</button>
         </div>
       </div>
-    `;
 
-    const watchUrl = `${location.origin}${location.pathname}#/watch`;
-    const watchEl = document.getElementById("watch-url-display");
-    if (watchEl) watchEl.textContent = watchUrl;
+      <details class="card advanced-details">
+        <summary>Advanced: OBS on a PC</summary>
+        <p class="muted" style="margin:10px 0 12px">Only if you stream from a laptop, not the one-phone flow.</p>
+        <div class="row-actions">
+          <a class="btn btn-sm" href="#/obs">OBS → YouTube</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy Browser Source URL</button>
+        </div>
+      </details>
+    `;
 
     document.getElementById("btn-select-demo")?.addEventListener("click", () => {
       if (!selectDemoMatch()) return;
       const label = document.getElementById("demo-selected-label");
-      if (label) label.textContent = "✓ Demo match is selected";
-      toast("Demo match selected");
+      if (label) label.textContent = "✓ Demo selected";
+      toast("Demo match selected — open Go Live");
     });
 
     document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
       copyText(obsBrowserSourceUrl(), "OBS Browser Source URL copied");
     });
 
-    document.getElementById("btn-copy-watch")?.addEventListener("click", async () => {
-      const url = `${location.origin}${location.pathname}#/watch`;
-      try {
-        await navigator.clipboard.writeText(url);
-        toast("Watch link copied — send this to fans");
-      } catch {
-        toast(url);
-      }
+    document.getElementById("btn-copy-watch")?.addEventListener("click", () => {
+      copyText(`${location.origin}${location.pathname}#/watch`, "Watch link copied — send to fans");
     });
   }
 
@@ -332,33 +308,38 @@
     setOverlayMode(false);
     setNav("setup");
     const s = SWHub.loadSettings();
+    const hasKey = !!(s.youtubeStreamKey || "").trim();
 
     main().innerHTML = `
-      <h1>Setup</h1>
-      <p class="lead">Stored in this browser only (localStorage). RTMP publish from the phone comes next.</p>
+      <h1>Setup <span class="muted" style="font-size:0.9rem;font-weight:600">(once per phone)</span></h1>
+      <p class="lead">Save your YouTube <strong>stream key</strong> here once. Match days only need: pick game → Go Live.</p>
 
       <form class="card" id="setup-form">
         <div class="field">
-          <label for="hubUrl">Cricket Local hub URL</label>
-          <input id="hubUrl" name="hubUrl" type="url" value="${escAttr(s.hubUrl)}" placeholder="${escAttr(SWHub.DEFAULT_HUB)}" required />
-          <p class="hint">Default: ${esc(SWHub.DEFAULT_HUB)}</p>
-        </div>
-        <div class="field">
-          <label for="clubLabel">Club label</label>
-          <input id="clubLabel" name="clubLabel" type="text" value="${escAttr(s.clubLabel)}" placeholder="Lullington Park" />
-        </div>
-        <div class="field">
-          <label for="youtubeStreamKey">YouTube stream key</label>
+          <label for="youtubeStreamKey">YouTube stream key ${hasKey ? "✓ saved" : ""}</label>
           <input id="youtubeStreamKey" name="youtubeStreamKey" type="password" autocomplete="off" value="${escAttr(s.youtubeStreamKey)}" placeholder="xxxx-xxxx-xxxx-xxxx" />
-          <p class="hint">YouTube Studio → Go live → Stream key. Used when device RTMP is wired up.</p>
+          <p class="hint">
+            YouTube Studio → Create → Go live → Stream → <strong>Stream key</strong>.
+            Same key every week unless you reset it. Stored only on this phone.
+          </p>
         </div>
         <div class="field">
-          <label for="youtubeVideoId">YouTube live video ID</label>
-          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="e.g. ZHVBULQZB94" />
-          <p class="hint">From a live URL: youtube.com/live/<strong>VIDEO_ID</strong> — used for board embed.</p>
+          <label for="clubLabel">Club name on graphics</label>
+          <input id="clubLabel" name="clubLabel" type="text" value="${escAttr(s.clubLabel)}" placeholder="Lullington Park CC" />
+        </div>
+        <div class="field">
+          <label for="hubUrl">Score hub URL</label>
+          <input id="hubUrl" name="hubUrl" type="url" value="${escAttr(s.hubUrl)}" placeholder="${escAttr(SWHub.DEFAULT_HUB)}" />
+          <p class="hint">Default Cricket Local hub — leave as-is unless you know you need to change it.</p>
+        </div>
+        <div class="field">
+          <label for="youtubeVideoId">YouTube video ID (optional, for Watch embed)</label>
+          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="from youtube.com/live/VIDEO_ID" />
+          <p class="hint">Not required for Go Live. Only if you share <span class="mono">#/watch?v=…</span> with video.</p>
         </div>
         <div class="row-actions">
           <button type="submit" class="btn btn-primary">Save</button>
+          <a class="btn btn-live" href="#/go-live">Go Live →</a>
           <button type="button" class="btn btn-ghost" id="btn-test-hub">Test hub</button>
         </div>
       </form>
@@ -375,8 +356,9 @@
         youtubeStreamKey: String(fd.get("youtubeStreamKey") || "").trim(),
         youtubeVideoId: String(fd.get("youtubeVideoId") || "").trim(),
       });
-      toast("Settings saved");
+      toast(SWStream?.hasStreamKey?.() ? "Saved — stream key ready for Go Live" : "Saved");
       refreshHubStatus();
+      viewSetup();
     });
 
     document.getElementById("btn-test-hub").addEventListener("click", async () => {
@@ -390,7 +372,6 @@
         box.innerHTML = `
           <h2>Hub OK</h2>
           <p>Live matches: <strong>${data.liveCount ?? data.matches?.length ?? 0}</strong></p>
-          <p class="muted mono">${esc(JSON.stringify({ message: data.message, source: data.source }).slice(0, 280))}</p>
         `;
         refreshHubStatus();
       } catch (err) {
@@ -403,52 +384,47 @@
     setOverlayMode(false);
     setNav("go-live");
     const s = SWHub.loadSettings();
+    const hasKey = SWStream?.hasStreamKey?.() || !!(s.youtubeStreamKey || "").trim();
 
     main().innerHTML = `
       <h1>Go Live</h1>
-      <p class="lead">Pick a live match from the hub, or select the weekend demo. Full phone→YouTube RTMP is next.</p>
+      <p class="lead">1) Select the game &nbsp;·&nbsp; 2) Tap <strong>Go Live</strong>. Stream key is ${hasKey ? "already saved" : "<a href='#/setup'>set once in Setup</a>"}.</p>
+
+      ${
+        !hasKey
+          ? `<div class="card" style="border-color:rgba(251,191,36,0.5)">
+        <p style="margin:0 0 10px"><strong>Stream key not on this phone yet</strong></p>
+        <a class="btn btn-primary" href="#/setup">Add stream key (once)</a>
+      </div>`
+          : `<div class="card" style="padding:12px 16px">
+        <p class="muted" style="margin:0;font-size:0.9rem">Stream key <strong class="mono">${esc(SWStream?.streamKeyMasked?.() || "saved")}</strong> — ready</p>
+      </div>`
+      }
 
       <div class="card demo-select-card">
-        <h2>Weekend demo</h2>
-        <p class="muted" style="margin:0 0 10px;font-size:0.9rem">
-          Sat 1 Aug · LPCC 1st XI vs Brailsford · <strong>190 all out</strong> · <strong>194/6</strong>
-        </p>
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <a class="btn btn-ghost" href="#/live">Live cam + score</a>
-        </div>
-        <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem"></p>
-      </div>
-
-      <div class="card">
-        <h2>Matches</h2>
+        <h2>Select game</h2>
         <div class="row-actions" style="margin-bottom:12px">
-          <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh matches</button>
-          <button type="button" class="btn btn-sm btn-primary" id="btn-select-demo-2">Select demo match</button>
+          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
+          <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh live list</button>
           <span class="badge badge-live" id="live-count-badge">…</span>
         </div>
-        <div id="match-list" class="match-list"><p class="empty">Loading hub…</p></div>
+        <p class="muted" id="demo-selected-label" style="margin:0 0 10px;font-size:0.85rem"></p>
+        <div id="match-list" class="match-list"><p class="empty">Loading…</p></div>
       </div>
 
       <div class="card">
-        <h2>Camera preview</h2>
-        <div class="preview-wrap" id="preview-wrap">
-          <video id="cam" playsinline muted autoplay></video>
-          <div class="preview-placeholder" id="cam-ph">Camera off — tap Enable camera</div>
-          <div class="preview-overlay-slot" id="preview-overlay"></div>
-        </div>
-        <div class="row-actions" style="margin-top:12px">
-          <button type="button" class="btn" id="btn-cam">Enable camera</button>
-          <button type="button" class="btn btn-live" id="btn-go-live">Go Live</button>
-          <button type="button" class="btn btn-ghost" id="btn-end-live" hidden>End Live</button>
-          <a class="btn btn-primary" href="#/live" id="btn-open-live-cam">Live cam + score</a>
-          <a class="btn btn-ghost" href="#/overlay" target="_blank" rel="noopener" id="btn-overlay-tab">OBS score only</a>
-        </div>
-        <p class="badge badge-live" id="on-air-pill" hidden style="margin-top:12px"></p>
-        <p class="hint muted" id="go-live-note" style="margin-top:12px">
-          <strong>Go Live</strong> opens full-screen <strong>camera + scoreboard</strong> on this phone.
-          Use <strong>OBS score only</strong> for a transparent browser source (no camera — by design).
+        <button type="button" class="btn btn-live" id="btn-go-live" style="width:100%;padding:16px;font-size:1.15rem">Go Live</button>
+        <p class="hint muted" id="go-live-note" style="margin-top:12px;text-align:center">
+          Opens full-screen camera with scores. Uses your saved stream key — no re-entry.
         </p>
+        <p class="badge badge-live" id="on-air-pill" hidden style="margin-top:12px"></p>
+        <button type="button" class="btn btn-ghost" id="btn-end-live" hidden style="width:100%;margin-top:8px">End Live</button>
+        <!-- hidden cam bind target for optional pre-warm -->
+        <video id="cam" playsinline muted autoplay style="display:none"></video>
+        <div id="cam-ph" hidden></div>
+        <div id="preview-overlay" hidden></div>
+        <button type="button" id="btn-cam" hidden></button>
+        <button type="button" id="btn-select-demo-2" hidden></button>
       </div>
     `;
 
@@ -574,18 +550,21 @@
     document.getElementById("btn-go-live").addEventListener("click", async () => {
       const set = SWHub.loadSettings();
       if (!set.selectedMatchId && !cachedMatches[0]) {
-        toast("Select a match or demo first");
-        return;
-      }
-      if (!set.selectedMatchId && cachedMatches[0]) {
+        // auto demo so one-tap still works
+        selectDemoMatch();
+      } else if (!set.selectedMatchId && cachedMatches[0]) {
         SWHub.saveSettings({
           selectedMatchId: cachedMatches[0].id,
           selectedSite: cachedMatches[0].site || "",
         });
       }
 
-      // Start camera on this user gesture, then open composite Live cam page
-      // (must keep stream when routing — /live is a camera route)
+      if (!SWStream?.hasStreamKey?.() && !(SWHub.loadSettings().youtubeStreamKey || "").trim()) {
+        toast("Add stream key once in Setup first");
+        location.hash = "#/setup";
+        return;
+      }
+
       try {
         await startCamera();
       } catch (e) {
@@ -596,7 +575,7 @@
 
       onAir = true;
       sessionStorage.setItem("sw-on-air", "1");
-      toast("Opening live camera + score…");
+      toast("Going live…");
       location.hash = "#/live";
     });
 
@@ -624,43 +603,51 @@
   }
 
   /**
-   * Full-screen phone broadcast: camera under score overlay.
-   * URL: #/live
+   * Full-screen phone broadcast: camera + score (composite feed for publish).
+   * URL: #/live — reached from Go Live one-tap flow.
    */
   async function viewLiveCam() {
     setOverlayMode(true, { withCamera: true });
-    setNav("live");
+    setNav("go-live");
     onAir = true;
     sessionStorage.setItem("sw-on-air", "1");
+
+    const hasKey = SWStream?.hasStreamKey?.();
 
     main().innerHTML = `
       <div class="live-stage" id="live-stage">
         <video id="cam" class="live-stage-video" playsinline muted autoplay webkit-playsinline></video>
         <div class="live-stage-ph" id="cam-ph">
           <strong>Starting camera…</strong>
-          <span class="muted" style="color:#86efac">Allow camera access if prompted</span>
+          <span class="muted" style="color:#86efac">Allow camera if prompted</span>
           <button type="button" class="btn btn-primary" id="btn-cam-retry">Enable camera</button>
         </div>
         <div class="live-stage-chrome">
-          <span class="live-pill" id="live-pill">Live</span>
+          <span class="live-pill" id="live-pill">Starting…</span>
           <div class="chrome-actions">
-            <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip cam</button>
+            <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip</button>
             <button type="button" class="btn btn-sm btn-ghost" id="btn-end-live-stage">End</button>
-            <a class="btn btn-sm btn-ghost" href="#/go-live">Setup</a>
           </div>
         </div>
         <div class="live-stage-score">
           <div class="overlay-root" id="overlay-root"></div>
         </div>
+        <p class="live-stream-status" id="live-stream-status"></p>
       </div>
     `;
 
     const root = document.getElementById("overlay-root");
     const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
+    const statusEl = document.getElementById("live-stream-status");
     let facing = "environment";
+
+    function setStatus(text) {
+      if (statusEl) statusEl.textContent = text || "";
+    }
 
     async function startFacing(mode) {
       facing = mode || facing;
+      SWStream?.stopComposite?.();
       stopCamera();
       mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -673,18 +660,46 @@
       bindCameraToVideo();
       const ph = document.getElementById("cam-ph");
       if (ph) ph.hidden = true;
-      const pill = document.getElementById("live-pill");
-      if (pill) pill.textContent = "Live · camera on";
+      await startCompositePipeline();
+    }
+
+    async function startCompositePipeline() {
+      const video = document.getElementById("cam");
+      const m = (await resolveActiveMatch()) || SWHub.getDemoMatch();
+      // Wait for video dimensions
+      await new Promise((r) => {
+        if (video.videoWidth) return r();
+        video.onloadedmetadata = () => r();
+        setTimeout(r, 800);
+      });
+      if (SWStream && mediaStream && video) {
+        SWStream.startComposite(video, mediaStream, m);
+        const pub = await SWStream.beginPublish();
+        const pill = document.getElementById("live-pill");
+        if (pill) {
+          pill.textContent = pub.ok ? "ON AIR" : "ON AIR · local";
+        }
+        setStatus(
+          pub.message ||
+            (hasKey
+              ? "Camera + scores · stream key ready"
+              : "Camera + scores · add stream key in Setup for YouTube")
+        );
+      }
     }
 
     async function tick() {
       try {
-        const m = await resolveActiveMatch();
+        let m = await resolveActiveMatch();
+        if (!m) m = SWHub.getDemoMatch();
         SWOverlay.mount(root, m, {
           brand: m?.demo ? "DEMO · LPCC" : brand,
         });
+        SWStream?.updateMatch?.(m);
       } catch (e) {
-        SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
+        const demo = SWHub.getDemoMatch();
+        SWOverlay.mount(root, demo, { brand: "DEMO · LPCC", extra: e.message });
+        SWStream?.updateMatch?.(demo);
       }
     }
 
@@ -695,18 +710,12 @@
       } catch (e) {
         toast("Camera denied or unavailable");
         console.warn(e);
-        const ph = document.getElementById("cam-ph");
-        if (ph) {
-          ph.hidden = false;
-          ph.querySelector("strong").textContent = "Camera unavailable";
-        }
       }
     });
 
     document.getElementById("btn-flip-cam")?.addEventListener("click", async () => {
       try {
         await startFacing(facing === "environment" ? "user" : "environment");
-        toast(facing === "user" ? "Front camera" : "Rear camera");
       } catch (e) {
         toast("Could not flip camera");
       }
@@ -715,30 +724,23 @@
     document.getElementById("btn-end-live-stage")?.addEventListener("click", () => {
       onAir = false;
       sessionStorage.removeItem("sw-on-air");
+      SWStream?.endPublish?.();
       stopCamera();
       location.hash = "#/go-live";
     });
 
-    // Prefer existing stream from Go Live gesture; else request camera here
     try {
       if (cameraIsLive()) {
         bindCameraToVideo();
-        const ph = document.getElementById("cam-ph");
-        if (ph) ph.hidden = true;
-        const pill = document.getElementById("live-pill");
-        if (pill) pill.textContent = "Live · camera on";
+        document.getElementById("cam-ph").hidden = true;
+        await startCompositePipeline();
       } else {
         await startFacing("environment");
       }
     } catch (e) {
       console.warn(e);
-      const ph = document.getElementById("cam-ph");
-      if (ph) {
-        ph.hidden = false;
-        const strong = ph.querySelector("strong");
-        if (strong) strong.textContent = "Tap Enable camera";
-      }
-      toast("Tap Enable camera to show the feed");
+      setStatus("Tap Enable camera");
+      toast("Allow camera to go live");
     }
 
     await tick();
@@ -1057,6 +1059,7 @@
     if (!isCameraRoute(path)) {
       if (onAir) onAir = false;
       sessionStorage.removeItem("sw-on-air");
+      SWStream?.endPublish?.();
       stopCamera();
     }
 

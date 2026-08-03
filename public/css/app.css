@@ -618,6 +618,47 @@ h2 {
   text-align: center;
 }
 
+/* Phone-first home */
+.phone-flow-lead {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.phone-hero-card {
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.phone-flow-steps {
+  margin-bottom: 14px;
+}
+
+.advanced-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.nav a.nav-advanced {
+  opacity: 0.65;
+  font-size: 0.8rem;
+}
+
+.live-stream-status {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(28% + env(safe-area-inset-bottom, 0px));
+  z-index: 6;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #bbf7d0;
+  font-size: 0.72rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* OBS guide */
 .obs-steps {
   margin: 0;

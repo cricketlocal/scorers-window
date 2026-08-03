@@ -5,13 +5,21 @@
 Phone / PWA → pick match → **Go Live** → camera + **our** Play-Cricket scoreboard → YouTube.  
 Viewers can also open the LIVE board (and later embed the same YouTube feed).
 
-## Product flow
+## Product flow (phone)
 
-1. Open the PWA  
-2. Add YouTube live credentials (stream key or OAuth later)  
-3. Pick the game (home club default)  
-4. Tap **Go Live**  
-5. Stream **auto-ends** when the match is completed on Play-Cricket  
+1. Open the PWA on the broadcast phone  
+2. **Setup once** — paste YouTube **stream key** (reused every week)  
+3. **Go Live** → select game (or demo)  
+4. Tap **Go Live** → full-screen camera + score composite  
+5. Fans: `#/watch` (scores) and/or the YouTube link  
+
+**Note:** Browsers cannot open YouTube RTMP directly. The phone builds a **camera+score composite** and stores the stream key for a cloud publish step. Until that relay is live, use **OBS on a PC** (`#/obs`) to burn the overlay into YouTube.  
+
+## Advanced
+
+- `#/obs` — OBS → YouTube checklist (PC encoder)  
+- `#/overlay?obs=1` — Browser Source URL  
+
 
 ## Local
 
