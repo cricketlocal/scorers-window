@@ -55,10 +55,19 @@ Home → **Use demo on overlay**, or open `/#/overlay` (default selection).
 | `/` | Home — weekend demo + setup checklist + Go Live / Overlay |
 | `/#/setup` | YouTube stream key + hub URL (localStorage for now) |
 | `/#/go-live` | Pick match (or demo), camera preview, Go Live |
-| `/#/live` | **Phone broadcast** — full-screen camera + score overlay |
-| `/#/overlay` | **OBS only** — transparent score graphics (no camera) |
-| `/#/watch` | **Viewers (share this)** — scores, no settings; optional `?v=YOUTUBE_ID` |
+| `/#/live` | **Phone** — full-screen camera + score (local only) |
+| `/#/obs` | **OBS → YouTube** guided setup (burn scores into live + VOD) |
+| `/#/overlay?obs=1` | **OBS Browser Source** URL — transparent score graphics |
+| `/#/watch` | **Viewers** — scores, no settings; optional `?v=YOUTUBE_ID` |
 | `/#/board` | Same as Watch (legacy alias) |
+
+### YouTube live with overlay (OBS)
+
+1. Open **https://scorers-window.onrender.com/#/obs**
+2. Copy the **Browser Source** URL  
+3. OBS: Camera + Browser source (1920×1080, above camera)  
+4. OBS Stream → YouTube stream key → **Start Streaming**  
+5. Overlay is **inside** the YouTube video (live and watch later) |
 
 ## Roadmap
 

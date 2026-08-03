@@ -1,6 +1,6 @@
 /**
  * Scorers Window — hash SPA
- * Routes: / #/setup #/go-live #/live #/overlay #/watch (viewers, no settings) #/board
+ * Routes: / #/setup #/go-live #/live #/obs (YouTube via OBS) #/overlay #/watch #/board
  */
 (function () {
   const { SWHub, SWOverlay, SWDemo } = window;
@@ -277,12 +277,14 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2>OBS score only (no camera)</h2>
-        <p class="muted" style="margin:0 0 12px">Transparent browser source for Streamlabs/OBS. <strong>No camera</strong> — graphics only.</p>
+      <div class="card demo-select-card">
+        <h2>YouTube live + overlay (OBS)</h2>
+        <p class="muted" style="margin:0 0 12px">
+          Burn our scoreboard into the YouTube feed (live <strong>and</strong> watch-later) using OBS Browser Source + stream key.
+        </p>
         <div class="row-actions">
-          <a class="btn" href="#/overlay" target="_blank" rel="noopener">Open OBS overlay</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy OBS URL</button>
+          <a class="btn btn-primary" href="#/obs">OBS → YouTube setup</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy Browser Source URL</button>
         </div>
       </div>
 
@@ -311,14 +313,8 @@
       toast("Demo match selected");
     });
 
-    document.getElementById("btn-copy-overlay")?.addEventListener("click", async () => {
-      const url = `${location.origin}${location.pathname}#/overlay`;
-      try {
-        await navigator.clipboard.writeText(url);
-        toast("Overlay URL copied");
-      } catch {
-        toast(url);
-      }
+    document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
+      copyText(obsBrowserSourceUrl(), "OBS Browser Source URL copied");
     });
 
     document.getElementById("btn-copy-watch")?.addEventListener("click", async () => {
@@ -755,49 +751,175 @@
   }
 
   /**
+   * Guided OBS → YouTube setup so overlay is burned into the live (and VOD) feed.
+   */
+  function viewObsGuide() {
+    setOverlayMode(false);
+    setNav("obs");
+    const s = SWHub.loadSettings();
+    const obsUrl = obsBrowserSourceUrl();
+    const hasKey = !!(s.youtubeStreamKey || "").trim();
+    const matchOk = !!(s.selectedMatchId || SWHub.getDemoMatch());
+
+    // Ensure a match is selected so the browser source has scores immediately
+    if (!s.selectedMatchId) selectDemoMatch();
+
+    main().innerHTML = `
+      <h1>OBS → YouTube</h1>
+      <p class="lead">
+        Put our scoreboard <strong>inside</strong> the YouTube live stream. Viewers on YouTube (live and later)
+        see camera + scores. You only set this up once per match day.
+      </p>
+
+      <div class="card demo-select-card">
+        <h2>1. Browser Source URL (copy this)</h2>
+        <p class="muted" style="margin:0 0 8px">Paste into OBS as a <strong>Browser</strong> source. Transparent page — scores only.</p>
+        <p class="mono obs-url-box" id="obs-url-box">${esc(obsUrl)}</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-copy-obs-url">Copy URL</button>
+          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
+          <button type="button" class="btn btn-sm" id="btn-obs-demo">Select demo match</button>
+        </div>
+        <p class="muted" style="margin:12px 0 0;font-size:0.85rem">
+          Match: <strong id="obs-match-label">${esc(SWHub.loadSettings().selectedMatchId || "demo")}</strong>
+          ${matchOk ? " · ready" : ""}
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>2. OBS scene layout</h2>
+        <ol class="obs-steps">
+          <li>Open <strong>OBS Studio</strong> (or Streamlabs).</li>
+          <li>Add your <strong>camera</strong> (or phone capture / NDI) as a video source — full canvas.</li>
+          <li><strong>+</strong> → <strong>Browser</strong> → Create new → name it <span class="mono">Scorers Overlay</span>.</li>
+          <li>Paste the URL from step 1.</li>
+          <li>Set size: <strong>Width 1920</strong> · <strong>Height 1080</strong> (or your canvas size).</li>
+          <li>Tick <strong>Shutdown source when not visible</strong> = <em>off</em> (keeps scores updating).</li>
+          <li>Tick <strong>Refresh browser when scene becomes active</strong> = <em>on</em>.</li>
+          <li>Custom CSS (optional, clears white flash):
+            <pre class="obs-pre" id="obs-css">body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }</pre>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-copy-obs-css">Copy CSS</button>
+          </li>
+          <li>Drag the browser source to the <strong>top</strong> of the Sources list (above the camera).</li>
+          <li>Resize so the score bar sits along the bottom; leave the rest of the frame empty (transparent).</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>3. YouTube stream key</h2>
+        <ol class="obs-steps">
+          <li>YouTube Studio → <strong>Create</strong> → <strong>Go live</strong> → <strong>Stream</strong>.</li>
+          <li>Copy <strong>Stream key</strong>.</li>
+          <li>OBS → <strong>Settings</strong> → <strong>Stream</strong> → Service: <strong>YouTube - RTMPS</strong> → paste key
+            ${hasKey ? "(also saved in our Setup)" : "(or save it in Scorers Window Setup)"}.
+          </li>
+          <li>Optional: save the key in <a href="#/setup">Setup</a> for your notes (OBS still needs it in Stream settings).</li>
+        </ol>
+        <div class="row-actions">
+          <a class="btn" href="#/setup">Open Setup</a>
+          <a class="btn btn-ghost" href="https://studio.youtube.com" target="_blank" rel="noopener">YouTube Studio</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>4. Go live checklist</h2>
+        <ul class="checklist">
+          <li class="done"><span class="dot"></span><span>Browser source URL copied</span></li>
+          <li class="${hasKey ? "done" : ""}"><span class="dot"></span><span>YouTube stream key in OBS${hasKey ? "" : " — add in YT Studio / Setup"}</span></li>
+          <li class="done"><span class="dot"></span><span>Camera under overlay in OBS</span></li>
+          <li class=""><span class="dot"></span><span>In OBS: <strong>Start Streaming</strong></span></li>
+          <li class=""><span class="dot"></span><span>Confirm on YouTube Studio preview: scores visible on the picture</span></li>
+        </ul>
+        <p class="muted" style="margin:12px 0 0;font-size:0.9rem">
+          Once it’s in the encode, <strong>live and watch-later</strong> on YouTube both show the overlay.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>5. Share with fans</h2>
+        <p class="muted" style="margin:0 0 12px">YouTube viewers use the normal live link. Optional companion scores page:</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-copy-watch-obs">Copy Watch link</button>
+          <a class="btn btn-ghost" href="#/watch">Open Watch</a>
+        </div>
+      </div>
+    `;
+
+    document.getElementById("btn-copy-obs-url")?.addEventListener("click", () => {
+      copyText(obsBrowserSourceUrl(), "Browser Source URL copied — paste in OBS");
+    });
+    document.getElementById("btn-copy-obs-css")?.addEventListener("click", () => {
+      copyText(
+        "body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }",
+        "OBS Custom CSS copied"
+      );
+    });
+    document.getElementById("btn-obs-demo")?.addEventListener("click", () => {
+      selectDemoMatch();
+      const el = document.getElementById("obs-match-label");
+      if (el) el.textContent = SWHub.getDemoMatch()?.id || "demo";
+      toast("Demo match selected for overlay");
+    });
+    document.getElementById("btn-copy-watch-obs")?.addEventListener("click", () => {
+      copyText(`${location.origin}${location.pathname}#/watch`, "Watch link copied");
+    });
+  }
+
+  /**
    * OBS / Streamlabs browser source — transparent score graphics only (no camera).
-   * URL: #/overlay  — for phone camera + score use #/live instead.
-   * Add ?obs=1 to hide the “no camera” tip (for clean OBS capture).
+   * URL: #/overlay?obs=1  — clean capture for YouTube burn-in.
+   * Phone camera + score (local only): #/live
    */
   async function viewOverlay() {
     setOverlayMode(true, { withCamera: false });
     setNav("overlay");
     const { params } = route();
-    const obsClean = params.get("obs") === "1" || params.get("clean") === "1";
+    // Default clean for OBS-friendly captures; ?tip=1 shows the help banner
+    const showTip = params.get("tip") === "1";
+    const obsClean = !showTip;
+
+    if (obsClean) {
+      document.documentElement.classList.add("obs-capture");
+    } else {
+      document.documentElement.classList.remove("obs-capture");
+    }
+
+    // Always have a match so OBS never opens blank
+    const s0 = SWHub.loadSettings();
+    if (!s0.selectedMatchId) selectDemoMatch();
 
     main().innerHTML = `
       ${
-        obsClean
-          ? ""
-          : `<div class="overlay-no-cam-tip" id="overlay-no-cam-tip" role="note">
-        <strong>No camera on this page</strong>
-        <span>This URL is <em>score graphics only</em> for OBS. Video is on <strong>Live cam</strong>.</span>
-        <a class="btn btn-live btn-sm" href="#/live">Open Live cam + score</a>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-dismiss-tip">Hide tip</button>
+        showTip
+          ? `<div class="overlay-no-cam-tip" id="overlay-no-cam-tip" role="note">
+        <strong>OBS score layer (no camera here)</strong>
+        <span>Use this page as a Browser Source in OBS over your camera, then stream to YouTube.</span>
+        <a class="btn btn-primary btn-sm" href="#/obs">OBS → YouTube guide</a>
+        <a class="btn btn-live btn-sm" href="#/live">Phone Live cam</a>
       </div>`
+          : ""
       }
       <div class="overlay-root" id="overlay-root"></div>
     `;
     const root = document.getElementById("overlay-root");
     const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
 
-    document.getElementById("btn-dismiss-tip")?.addEventListener("click", () => {
-      document.getElementById("overlay-no-cam-tip")?.remove();
-    });
-
     async function tick() {
       try {
-        const m = await resolveActiveMatch();
+        let m = await resolveActiveMatch();
+        if (!m) m = SWHub.getDemoMatch();
         SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
         if (m?.completed) root.dataset.completed = "1";
       } catch (e) {
-        SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
+        const demo = SWHub.getDemoMatch();
+        if (demo) SWOverlay.mount(root, demo, { brand: "DEMO · LPCC" });
+        else SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
       }
     }
 
     await tick();
     stopActivePoll();
-    stopPoll = SWHub.poll(tick, 12_000);
+    stopPoll = SWHub.poll(tick, 10_000);
   }
 
   /**
@@ -910,12 +1032,27 @@
     return String(u || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
   }
 
+  /** Clean browser-source URL for OBS (no tip chrome) */
+  function obsBrowserSourceUrl() {
+    return `${location.origin}${location.pathname}#/overlay?obs=1`;
+  }
+
+  async function copyText(text, okMsg) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(okMsg || "Copied");
+    } catch {
+      toast(text);
+    }
+  }
+
   /* ——— router ——— */
 
   async function render() {
     stopActivePoll();
     const { path } = route();
     document.body.classList.remove("watch-mode");
+    document.documentElement.classList.remove("obs-capture");
     // Keep camera when moving between Go Live control room and Live cam composite
     if (!isCameraRoute(path)) {
       if (onAir) onAir = false;
@@ -928,6 +1065,7 @@
       else if (path === "/setup") viewSetup();
       else if (path === "/go-live") await viewGoLive();
       else if (path === "/live") await viewLiveCam();
+      else if (path === "/obs") viewObsGuide();
       else if (path === "/overlay") await viewOverlay();
       else if (path === "/watch" || path === "/board") await viewWatch();
       else viewNotFound();

@@ -618,9 +618,58 @@ h2 {
   text-align: center;
 }
 
+/* OBS guide */
+.obs-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.obs-steps li {
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.obs-steps li::marker {
+  color: var(--accent);
+}
+
+.obs-url-box {
+  word-break: break-all;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin: 0 0 12px;
+}
+
+.obs-pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  overflow-x: auto;
+  color: #bbf7d0;
+  white-space: pre-wrap;
+}
+
 /* Viewer watch page */
 body.watch-mode .nav a:not([data-nav="watch"]) {
   opacity: 0.55;
+}
+
+/* Fully transparent page for OBS browser source */
+html.obs-capture,
+html.obs-capture body,
+html.obs-capture #app,
+html.obs-capture .main.main--overlay {
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
 }
 
 .watch-page {
