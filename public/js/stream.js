@@ -459,50 +459,65 @@
         if (msg.type === "started") {
           clearTimeout(timeout);
           reconnectAttempts = 0;
-          try {
-            recorder = new MediaRecorder(compositeStream, {
-              mimeType: mime,
-              videoBitsPerSecond: 2_000_000,
-              audioBitsPerSecond: 128_000,
-            });
-          } catch (e) {
-            setStatus({ state: "error", message: "MediaRecorder: " + e.message });
-            finish({ ok: false, mode: "error", message: e.message });
-            return;
-          }
-          recorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-              e.data.arrayBuffer().then((buf) => {
-                try {
-                  if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
-                } catch {
-                  /* */
-                }
-              });
+          // Let canvas paint a few frames before encode
+          setTimeout(() => {
+            if (intentionalStop || !compositeStream || !ws || ws.readyState !== WebSocket.OPEN) {
+              finish({ ok: false, message: "not ready" });
+              return;
             }
-          };
-          recorder.onerror = () => {
-            setStatus({ state: "connecting", message: "Recorder error — reconnecting…" });
-            scheduleReconnect("recorder");
-          };
-          // 500ms chunks = faster start for ffmpeg probing
-          // Smaller chunks help ffmpeg start; video-only is more stable on mobile
-          recorder.start(1000);
-          setStatus({
-            state: "live",
-            ok: true,
-            mode: "youtube",
-            message: isRetry
-              ? "Back on YouTube — keep this screen open"
-              : "ON AIR → YouTube. Keep screen open (don't lock or switch apps)",
-            key: msg.key,
-          });
-          finish({
-            ok: true,
-            mode: "youtube",
-            message: "Streaming to YouTube",
-            streamKeySet: true,
-          });
+            try {
+              recorder = new MediaRecorder(compositeStream, {
+                mimeType: mime,
+                videoBitsPerSecond: 1_200_000,
+              });
+            } catch (e) {
+              try {
+                recorder = new MediaRecorder(compositeStream, { videoBitsPerSecond: 1_200_000 });
+              } catch (e2) {
+                setStatus({ state: "error", message: "MediaRecorder: " + e2.message });
+                finish({ ok: false, mode: "error", message: e2.message });
+                return;
+              }
+            }
+            recorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                e.data.arrayBuffer().then((buf) => {
+                  try {
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
+                  } catch {
+                    /* */
+                  }
+                });
+              }
+            };
+            recorder.onerror = () => {
+              setStatus({ state: "connecting", message: "Recorder error — reconnecting…" });
+              scheduleReconnect("recorder");
+            };
+            // 2s clusters = cleaner WebM for ffmpeg (less "Invalid data")
+            try {
+              recorder.start(2000);
+            } catch (e) {
+              setStatus({ state: "error", message: "Recorder start failed" });
+              finish({ ok: false, message: e.message });
+              return;
+            }
+            setStatus({
+              state: "live",
+              ok: true,
+              mode: "youtube",
+              message: isRetry
+                ? "Back on YouTube — keep this screen open"
+                : "ON AIR → YouTube. Keep screen open (don't lock or switch apps)",
+              key: msg.key,
+            });
+            finish({
+              ok: true,
+              mode: "youtube",
+              message: "Streaming to YouTube",
+              streamKeySet: true,
+            });
+          }, 700);
           return;
         }
         if (msg.type === "warn") {
