@@ -47,6 +47,7 @@ app.get("/api/stream/status", (_req, res) => {
     youtubeRelay: hasFfmpeg,
     activeSessions: sessions.size,
     rtmpBase: YT_RTMP_BASE.replace(/\/+$/, ""),
+    lastStreamEvent,
   });
 });
 
@@ -71,6 +72,8 @@ const wss = new WebSocketServer({ server, path: "/ws/stream" });
 
 /** @type {Map<string, object>} */
 const sessions = new Map();
+/** @type {{ at: string, message: string, code?: number, bytesIn?: number } | null} */
+let lastStreamEvent = null;
 
 function sanitizeKey(key) {
   return String(key || "")
@@ -228,23 +231,27 @@ wss.on("connection", (ws, req) => {
       }
 
       const rtmpUrl = `${YT_RTMP_BASE.replace(/\/+$/, "")}/${streamKey}`;
-      // MediaRecorder sends WebM; re-encode to H.264/AAC FLV for YouTube
+      // MediaRecorder WebM (often video-only). Re-encode H.264 → FLV for YouTube.
+      // -use_wallclock_as_timestamps helps with chunked live webm from browsers.
       const args = [
         "-hide_banner",
         "-loglevel",
-        "info",
+        "warning",
         "-fflags",
-        "+genpts+igndts",
+        "+genpts+igndts+nobuffer",
+        "-use_wallclock_as_timestamps",
+        "1",
         "-thread_queue_size",
-        "512",
+        "1024",
         "-f",
         "webm",
         "-i",
         "pipe:0",
+        "-an", // phone publish is video-only for stability
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-tune",
         "zerolatency",
         "-profile:v",
@@ -258,19 +265,11 @@ wss.on("connection", (ws, req) => {
         "-keyint_min",
         "25",
         "-b:v",
-        "2000k",
+        "1500k",
         "-maxrate",
-        "2200k",
+        "1800k",
         "-bufsize",
-        "4000k",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "44100",
-        "-ac",
-        "2",
+        "3000k",
         "-f",
         "flv",
         "-flvflags",
@@ -309,6 +308,15 @@ wss.on("connection", (ws, req) => {
       proc.on("close", (code, signal) => {
         const hint = humanFfmpegHint(session?.stderrBuf);
         console.log(`[ffmpeg ${id}] exit code=${code} signal=${signal} bytesIn=${bytesIn} hint=${hint}`);
+        lastStreamEvent = {
+          at: new Date().toISOString(),
+          message: hint,
+          code,
+          signal,
+          bytesIn,
+          key: maskKey(streamKey),
+          stderrTail: (session?.stderrBuf || "").slice(-500),
+        };
         sessions.delete(id);
         session = null;
         send({

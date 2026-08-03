@@ -8,7 +8,7 @@
   let ctx = null;
   let raf = 0;
   let compositeStream = null;
-  let audioTracks = [];
+  let ownedVideoTrack = null;
   let running = false;
   let lastMatch = null;
   let recorder = null;
@@ -21,6 +21,7 @@
   const MAX_RECONNECT = 8;
   let publishHandlers = null;
   let lastMime = "";
+  let wakeLock = null;
 
   function ensureCanvas(w, h) {
     if (!canvas) {
@@ -148,11 +149,11 @@
   }
 
   /**
-   * Start compositing camera (+audio) with score overlay into one MediaStream.
-   * @returns {MediaStream|null}
+   * Composite camera frames + score bar for YouTube.
+   * Video-only (more reliable through ffmpeg/YouTube). Preview still has mic on <video>.
    */
   function startComposite(videoEl, camStream, match) {
-    stopComposite();
+    stopCompositeOwned();
     lastMatch = match || null;
     if (!videoEl || !camStream) return null;
 
@@ -162,11 +163,12 @@
     running = true;
     loop(videoEl);
 
-    const fps = 30;
-    const vTrack = canvas.captureStream(fps).getVideoTracks()[0];
-    audioTracks = camStream.getAudioTracks().map((t) => t.clone());
-    const tracks = [vTrack, ...audioTracks].filter(Boolean);
-    compositeStream = new MediaStream(tracks);
+    const fps = 25;
+    const cStream = canvas.captureStream(fps);
+    ownedVideoTrack = cStream.getVideoTracks()[0];
+    // Video-only publish stream — avoids mobile audio+canvas MediaRecorder failures
+    compositeStream = new MediaStream(ownedVideoTrack ? [ownedVideoTrack] : []);
+    requestWakeLock();
     return compositeStream;
   }
 
@@ -174,21 +176,44 @@
     lastMatch = match || null;
   }
 
-  function stopComposite() {
+  function stopCompositeOwned() {
     running = false;
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
-    if (compositeStream) {
-      compositeStream.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          /* */
-        }
-      });
-      compositeStream = null;
+    try {
+      ownedVideoTrack?.stop();
+    } catch {
+      /* */
     }
-    audioTracks = [];
+    ownedVideoTrack = null;
+    compositeStream = null;
+  }
+
+  function stopComposite() {
+    stopCompositeOwned();
+    releaseWakeLock();
+  }
+
+  async function requestWakeLock() {
+    try {
+      if (navigator.wakeLock?.request) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener?.("release", () => {
+          wakeLock = null;
+        });
+      }
+    } catch {
+      /* unsupported / denied */
+    }
+  }
+
+  function releaseWakeLock() {
+    try {
+      wakeLock?.release?.();
+    } catch {
+      /* */
+    }
+    wakeLock = null;
   }
 
   function getCompositeStream() {
@@ -309,16 +334,16 @@
         state: "local",
         ok: true,
         message:
-          (reason || "Relay down") +
-          " — still on air on phone. Check stream key + YouTube Studio is live, then End and Go Live again.",
+          "YouTube push stopped — camera+scores still on this phone. " +
+          "Check: (1) real stream key in Setup (2) YouTube Studio already Live (3) stay on this screen. Then End → Go Live.",
       });
       return;
     }
     reconnectAttempts += 1;
-    const delay = Math.min(12000, 1500 * reconnectAttempts);
+    const delay = Math.min(10000, 2000 * reconnectAttempts);
     setStatus({
       state: "connecting",
-      message: `Reconnecting to YouTube (${reconnectAttempts}/${MAX_RECONNECT})… ${reason || ""}`.trim(),
+      message: `Reconnecting to YouTube… try ${reconnectAttempts}/${MAX_RECONNECT}`,
     });
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
@@ -456,14 +481,15 @@
             scheduleReconnect("recorder");
           };
           // 500ms chunks = faster start for ffmpeg probing
-          recorder.start(500);
+          // Smaller chunks help ffmpeg start; video-only is more stable on mobile
+          recorder.start(1000);
           setStatus({
             state: "live",
             ok: true,
             mode: "youtube",
             message: isRetry
-              ? "Reconnected — streaming to YouTube. Keep screen open."
-              : "Streaming to YouTube — keep screen open & unlocked",
+              ? "Back on YouTube — keep this screen open"
+              : "ON AIR → YouTube. Keep screen open (don't lock or switch apps)",
             key: msg.key,
           });
           finish({
@@ -516,7 +542,7 @@
         clearTimeout(timeout);
         if (intentionalStop) return;
         if (publishState === "live" || publishState === "connecting") {
-          scheduleReconnect("Disconnected from relay");
+          scheduleReconnect("link dropped");
         }
       };
     });
