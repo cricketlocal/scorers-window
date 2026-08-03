@@ -270,11 +270,21 @@
       </div>
 
       <div class="card">
-        <h2>Fans (no setup)</h2>
-        <p class="muted" style="margin:0 0 12px">Share the Watch link — scores only, no stream key.</p>
+        <h2>Fans</h2>
+        <p class="muted" style="margin:0 0 12px">
+          Share the YouTube live link (video + burned-in scores if streaming).
+          Our Watch page is scores only (optional embed).
+        </p>
+        ${
+          youtubeWatchUrl()
+            ? `<p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all">${esc(youtubeWatchUrl())}</p>`
+            : `<p class="muted" style="margin:0 0 12px;font-size:0.85rem">Set <strong>YouTube video ID</strong> in Setup to enable the button (from Studio share / live URL).</p>`
+        }
         <div class="row-actions">
-          <a class="btn" href="#/watch">Open Watch</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-watch">Copy Watch link</button>
+          <button type="button" class="btn btn-live" id="btn-watch-youtube">Watch on YouTube</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy YouTube link</button>
+          <a class="btn btn-ghost btn-sm" href="#/watch">Scores page</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-watch">Copy scores link</button>
         </div>
       </div>
 
@@ -299,8 +309,17 @@
       copyText(obsBrowserSourceUrl(), "OBS Browser Source URL copied");
     });
 
+    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch());
+    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
+      const url = youtubeWatchUrl();
+      if (!url) {
+        toast("Add YouTube video ID in Setup first");
+        return;
+      }
+      copyText(url, "YouTube link copied — send to fans");
+    });
     document.getElementById("btn-copy-watch")?.addEventListener("click", () => {
-      copyText(`${location.origin}${location.pathname}#/watch`, "Watch link copied — send to fans");
+      copyText(`${location.origin}${location.pathname}#/watch`, "Scores page link copied");
     });
   }
 
@@ -351,6 +370,7 @@
         <div class="row-actions">
           <button type="submit" class="btn btn-primary">Save</button>
           <a class="btn btn-live" href="#/go-live">Go Live →</a>
+          <button type="button" class="btn btn-ghost" id="btn-watch-youtube">Watch on YouTube</button>
           <button type="button" class="btn btn-ghost" id="btn-test-hub">Test hub</button>
           <button type="button" class="btn btn-ghost" id="btn-test-relay">Test YouTube relay</button>
         </div>
@@ -363,6 +383,8 @@
     if (isBadRelay(s.streamRelayUrl)) {
       SWHub.saveSettings({ streamRelayUrl: "" });
     }
+
+    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch());
 
     document.getElementById("setup-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -472,7 +494,11 @@
         <a class="btn btn-primary" href="#/setup">Add stream key (once)</a>
       </div>`
           : `<div class="card" style="padding:12px 16px">
-        <p class="muted" style="margin:0;font-size:0.9rem">Stream key <strong class="mono">${esc(SWStream?.streamKeyMasked?.() || "saved")}</strong> — ready</p>
+        <p class="muted" style="margin:0 0 10px;font-size:0.9rem">Stream key <strong class="mono">${esc(SWStream?.streamKeyMasked?.() || "saved")}</strong> — ready</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-sm btn-live" id="btn-watch-youtube">Watch on YouTube</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-copy-youtube">Copy YouTube link</button>
+        </div>
       </div>`
       }
 
@@ -622,6 +648,16 @@
       }
     });
 
+    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch());
+    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
+      const url = youtubeWatchUrl();
+      if (!url) {
+        toast("Add YouTube video ID in Setup first");
+        return;
+      }
+      copyText(url, "YouTube link copied");
+    });
+
     document.getElementById("btn-go-live").addEventListener("click", async () => {
       const set = SWHub.loadSettings();
       if (!set.selectedMatchId && !cachedMatches[0]) {
@@ -700,6 +736,7 @@
         <div class="live-stage-chrome">
           <span class="live-pill" id="live-pill">Starting…</span>
           <div class="chrome-actions">
+            <button type="button" class="btn btn-sm btn-live" id="btn-watch-youtube-live">YouTube</button>
             <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip</button>
             <button type="button" class="btn btn-sm btn-ghost" id="btn-end-live-stage">End</button>
           </div>
@@ -809,6 +846,8 @@
         toast("Could not flip camera");
       }
     });
+
+    document.getElementById("btn-watch-youtube-live")?.addEventListener("click", () => openYouTubeWatch());
 
     document.getElementById("btn-end-live-stage")?.addEventListener("click", () => {
       onAir = false;
@@ -1041,6 +1080,14 @@
         <header class="watch-head">
           <h1>Live score</h1>
           <p class="lead watch-lead">Scores update automatically. No login or setup.</p>
+          <div class="row-actions" style="margin-bottom:14px">
+            <button type="button" class="btn btn-live" id="btn-watch-youtube">Watch on YouTube</button>
+            ${
+              youtubeWatchUrl(yt)
+                ? `<button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy YouTube link</button>`
+                : `<a class="btn btn-ghost btn-sm" href="#/setup">Set video ID</a>`
+            }
+          </div>
         </header>
         <div class="board-shell">
           ${
@@ -1056,10 +1103,11 @@
                 </div>`
               : `<div class="watch-video-placeholder card">
                   <p style="margin:0 0 6px;font-weight:700">Scoreboard only</p>
-                  <p class="muted" style="margin:0;font-size:0.9rem">
-                    When a stream is on, open the club’s YouTube live link, or use a shared link with
-                    <span class="mono">#/watch?v=VIDEO_ID</span>.
+                  <p class="muted" style="margin:0 0 12px;font-size:0.9rem">
+                    Tap <strong>Watch on YouTube</strong> for the full video (after video ID is set in Setup),
+                    or open the club’s YouTube live link.
                   </p>
+                  <button type="button" class="btn btn-live" id="btn-watch-youtube-2">Watch on YouTube</button>
                 </div>`
           }
           <div class="board-score watch-score" id="board-score"></div>
@@ -1067,6 +1115,17 @@
         </div>
       </div>
     `;
+
+    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch(yt));
+    document.getElementById("btn-watch-youtube-2")?.addEventListener("click", () => openYouTubeWatch(yt));
+    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
+      const url = youtubeWatchUrl(yt);
+      if (!url) {
+        toast("Add YouTube video ID in Setup first");
+        return;
+      }
+      copyText(url, "YouTube link copied");
+    });
 
     const box = document.getElementById("board-score");
 
@@ -1126,6 +1185,26 @@
   /** Clean browser-source URL for OBS (no tip chrome) */
   function obsBrowserSourceUrl() {
     return `${location.origin}${location.pathname}#/overlay?obs=1`;
+  }
+
+  /** Public YouTube watch/live URL from saved or query video id */
+  function youtubeWatchUrl(videoId) {
+    const id = String(videoId || SWHub.loadSettings().youtubeVideoId || "")
+      .trim()
+      .replace(/^.*(?:v=|live\/|youtu\.be\/)/, "")
+      .replace(/[^a-zA-Z0-9_-].*$/, "");
+    if (!id) return "";
+    return `https://www.youtube.com/live/${id}`;
+  }
+
+  function openYouTubeWatch(videoId) {
+    const url = youtubeWatchUrl(videoId);
+    if (!url) {
+      toast("Add YouTube video ID in Setup first (from Studio share link)");
+      location.hash = "#/setup";
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function copyText(text, okMsg) {
