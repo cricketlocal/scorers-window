@@ -273,10 +273,11 @@
   }
 
   function pickRecorderMime() {
+    // Video-only composite — must NOT request opus/audio codecs (causes "Invalid data" in ffmpeg)
     const types = [
-      "video/webm;codecs=vp8,opus",
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=h264,opus",
+      "video/webm;codecs=vp8",
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=h264",
       "video/webm",
     ];
     for (const t of types) {
