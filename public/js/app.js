@@ -76,16 +76,35 @@
     }
   }
 
+  function selectDemoMatch() {
+    const d = SWHub.getDemoMatch();
+    if (!d) {
+      toast("Demo match not available");
+      return null;
+    }
+    SWHub.saveSettings({
+      selectedMatchId: d.id,
+      selectedSite: d.site || "https://lpcc.play-cricket.com",
+      clubLabel: SWHub.loadSettings().clubLabel || "Lullington Park CC",
+      useDemoWhenIdle: true,
+    });
+    activeMatch = d;
+    return d;
+  }
+
   async function loadMatches() {
-    const data = await SWHub.fetchHub();
+    let data = { matches: [], message: null, liveCount: 0 };
+    try {
+      data = await SWHub.fetchHub();
+    } catch (e) {
+      data = { matches: [], message: e.message || "Hub offline", liveCount: 0, hubError: true };
+    }
     const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
     const demo = SWHub.getDemoMatch();
-    const settings = SWHub.loadSettings();
-    const useDemo = settings.useDemoWhenIdle !== false;
-    // Always expose weekend demo for testing; live games first
+    // Always include weekend demo so it can be selected
     let list = liveList.slice();
-    if (demo && (useDemo || !list.length)) {
-      if (!list.some((m) => m.id === demo.id)) list = [...list, demo];
+    if (demo && !list.some((m) => m.id === demo.id)) {
+      list = [...list, demo];
     }
     cachedMatches = list;
     return {
@@ -95,6 +114,7 @@
       message: data.message || null,
       liveCount: data.liveCount ?? liveList.length,
       usingDemoOnly: liveList.length === 0 && !!demo,
+      hubError: !!data.hubError,
     };
   }
 
@@ -163,9 +183,13 @@
         </p>
         <p class="muted" style="margin:0 0 12px;font-size:0.85rem">${esc(demo?.status || "")} · Play-Cricket #${esc(demo?.id || "")}</p>
         <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-use-demo">Use demo on overlay</button>
-          <a class="btn btn-ghost" href="#/overlay">Open overlay</a>
+          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
+          <a class="btn" href="#/overlay" id="btn-open-overlay-demo">Open overlay</a>
+          <a class="btn btn-ghost" href="#/go-live">Go Live</a>
         </div>
+        <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem">
+          ${demoActive ? "✓ Demo match is selected" : "Not selected yet — tap the button above"}
+        </p>
       </div>
 
       <div class="card">
@@ -198,16 +222,11 @@
       </div>
     `;
 
-    document.getElementById("btn-use-demo")?.addEventListener("click", () => {
-      const d = SWHub.getDemoMatch();
-      if (!d) return;
-      SWHub.saveSettings({
-        selectedMatchId: d.id,
-        selectedSite: d.site,
-        clubLabel: "Lullington Park CC",
-        useDemoWhenIdle: true,
-      });
-      toast("Weekend demo selected — open Overlay");
+    document.getElementById("btn-select-demo")?.addEventListener("click", () => {
+      if (!selectDemoMatch()) return;
+      const label = document.getElementById("demo-selected-label");
+      if (label) label.textContent = "✓ Demo match is selected";
+      toast("Demo match selected");
     });
 
     document.getElementById("btn-copy-overlay")?.addEventListener("click", async () => {
@@ -299,11 +318,25 @@
 
     main().innerHTML = `
       <h1>Go Live</h1>
-      <p class="lead">Pick a live match from the hub, preview camera + overlay. Full phone→YouTube RTMP is next.</p>
+      <p class="lead">Pick a live match from the hub, or select the weekend demo. Full phone→YouTube RTMP is next.</p>
+
+      <div class="card demo-select-card">
+        <h2>Weekend demo</h2>
+        <p class="muted" style="margin:0 0 10px;font-size:0.9rem">
+          Sat 1 Aug · LPCC 1st XI vs Brailsford · <strong>190 all out</strong> · <strong>194/6</strong>
+        </p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
+          <a class="btn btn-ghost" href="#/overlay">Show on overlay</a>
+        </div>
+        <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem"></p>
+      </div>
 
       <div class="card">
+        <h2>Matches</h2>
         <div class="row-actions" style="margin-bottom:12px">
           <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh matches</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-select-demo-2">Select demo match</button>
           <span class="badge badge-live" id="live-count-badge">…</span>
         </div>
         <div id="match-list" class="match-list"><p class="empty">Loading hub…</p></div>
@@ -333,42 +366,71 @@
     const badge = document.getElementById("live-count-badge");
     const previewOverlay = document.getElementById("preview-overlay");
 
+    function updateDemoLabel() {
+      const d = SWHub.getDemoMatch();
+      const sel = SWHub.loadSettings().selectedMatchId;
+      const on = d && (sel === d.id || SWDemo?.isDemoId?.(sel));
+      const text = on ? "✓ Demo match is selected" : "Demo not selected";
+      document.querySelectorAll("#demo-selected-label").forEach((el) => {
+        el.textContent = text;
+      });
+    }
+
+    function onSelectDemo() {
+      if (!selectDemoMatch()) return;
+      updateDemoLabel();
+      toast("Demo match selected");
+      paintMatches();
+      refreshOverlayPreview();
+    }
+
     async function paintMatches() {
       try {
-        const { list, message, liveCount, usingDemoOnly } = await loadMatches();
+        const { list, message, liveCount, usingDemoOnly, hubError } = await loadMatches();
         badge.textContent = usingDemoOnly ? "demo" : `${liveCount} live`;
         const selectedId = SWHub.loadSettings().selectedMatchId;
+        updateDemoLabel();
 
         if (!list.length) {
-          listEl.innerHTML = `<p class="empty">${esc(message || "No live matches right now. Start scoring on Play-Cricket, then refresh.")}</p>`;
+          listEl.innerHTML = `<p class="empty">${esc(message || "No matches.")}</p>
+            <button type="button" class="btn btn-primary" id="btn-select-demo-empty" style="width:100%;margin-top:10px">Select demo match</button>`;
+          document.getElementById("btn-select-demo-empty")?.addEventListener("click", onSelectDemo);
           SWOverlay.mount(previewOverlay, null, { compact: true, brand: s.clubLabel || "Scorers Window" });
           return;
         }
 
         listEl.innerHTML =
-          (usingDemoOnly
-            ? `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">No live hub matches — showing <strong>weekend demo</strong> (Sat 1 Aug LPCC v Brailsford).</p>`
-            : "") +
+          (usingDemoOnly || hubError
+            ? `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">${hubError ? "Hub offline — " : "No live hub matches — "}use <strong>Select demo match</strong> or tap the DEMO row.</p>`
+            : `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">Tap a row to select, or use <strong>Select demo match</strong>.</p>`) +
           list
             .map((m) => {
               const sel = m.id === selectedId ? " selected" : "";
               const tag = m.demo ? "DEMO" : m.live ? "LIVE" : m.completed ? "RESULT" : "MATCH";
+              const selectLabel = m.id === selectedId ? "Selected" : m.demo ? "Select demo" : "Select";
               return `
               <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site)}" data-demo="${m.demo ? "1" : "0"}">
                 <span class="teams">${esc(m.homeTeam)} vs ${esc(m.awayTeam)}</span>
                 <span class="scores">${esc(m.homeScore)} · ${esc(m.awayScore)}</span>
                 <span class="meta"><span class="badge ${m.demo ? "" : "badge-live"}" style="${m.demo ? "background:rgba(251,191,36,0.2);color:#fde68a" : ""}">${tag}</span>
-                  ${esc(m.date || m.status || "")} · #${esc(m.id)}</span>
+                  ${esc(m.date || m.status || "")} · #${esc(m.id)} · <strong>${selectLabel}</strong></span>
               </button>`;
             })
             .join("");
 
         listEl.querySelectorAll(".match-item").forEach((btn) => {
           btn.addEventListener("click", () => {
-            SWHub.saveSettings({
-              selectedMatchId: btn.getAttribute("data-id"),
-              selectedSite: btn.getAttribute("data-site") || "",
-            });
+            const id = btn.getAttribute("data-id");
+            const isDemo = btn.getAttribute("data-demo") === "1";
+            if (isDemo) {
+              selectDemoMatch();
+            } else {
+              SWHub.saveSettings({
+                selectedMatchId: id,
+                selectedSite: btn.getAttribute("data-site") || "",
+              });
+            }
+            toast(isDemo ? "Demo match selected" : "Match selected");
             paintMatches();
             refreshOverlayPreview();
           });
@@ -376,23 +438,22 @@
 
         await refreshOverlayPreview();
       } catch (e) {
-        // Hub down — still show demo
         const demo = SWHub.getDemoMatch();
-        if (demo) {
-          badge.textContent = "demo";
-          listEl.innerHTML = `
-            <p class="muted" style="margin:0 0 10px;font-size:0.85rem">Hub error — using weekend demo. (${esc(e.message || e)})</p>
-            <button type="button" class="match-item selected" data-id="${escAttr(demo.id)}" data-site="${escAttr(demo.site)}">
+        badge.textContent = "demo";
+        listEl.innerHTML = `
+          <p class="muted" style="margin:0 0 10px;font-size:0.85rem">Could not load hub. (${esc(e.message || e)})</p>
+          <button type="button" class="btn btn-primary" id="btn-select-demo-err" style="width:100%;margin-bottom:10px">Select demo match</button>
+          ${
+            demo
+              ? `<button type="button" class="match-item" data-id="${escAttr(demo.id)}" data-site="${escAttr(demo.site)}" data-demo="1">
               <span class="teams">${esc(demo.homeTeam)} vs ${esc(demo.awayTeam)}</span>
               <span class="scores">${esc(demo.homeScore)} · ${esc(demo.awayScore)}</span>
               <span class="meta">DEMO · ${esc(demo.date)} · #${esc(demo.id)}</span>
-            </button>`;
-          SWHub.saveSettings({ selectedMatchId: demo.id, selectedSite: demo.site });
-          SWOverlay.mount(previewOverlay, demo, { compact: true, brand: "DEMO · LPCC" });
-        } else {
-          listEl.innerHTML = `<p class="empty">Hub error: ${esc(e.message || e)}</p>`;
-          badge.textContent = "error";
-        }
+            </button>`
+              : ""
+          }`;
+        document.getElementById("btn-select-demo-err")?.addEventListener("click", onSelectDemo);
+        listEl.querySelector(".match-item")?.addEventListener("click", onSelectDemo);
       }
     }
 
@@ -400,11 +461,14 @@
       const m = await resolveActiveMatch();
       SWOverlay.mount(previewOverlay, m, {
         compact: true,
-        brand: SWHub.loadSettings().clubLabel || "Scorers Window",
+        brand: m?.demo ? "DEMO · LPCC" : SWHub.loadSettings().clubLabel || "Scorers Window",
       });
     }
 
     document.getElementById("btn-refresh-matches").addEventListener("click", () => paintMatches());
+    document.getElementById("btn-select-demo")?.addEventListener("click", onSelectDemo);
+    document.getElementById("btn-select-demo-2")?.addEventListener("click", onSelectDemo);
+    updateDemoLabel();
 
     document.getElementById("btn-cam").addEventListener("click", async () => {
       try {
@@ -496,11 +560,12 @@
               </div>`
             : `<div class="card"><p class="muted" style="margin:0">No YouTube video ID set. Example Brailsford weekend: <span class="mono">ZHVBULQZB94</span></p></div>`
         }
-        <div class="board-score" id="board-score"></div>
         <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
           <button type="button" class="btn btn-sm" id="btn-board-refresh">Refresh score</button>
           <a class="btn btn-sm btn-ghost" href="#/setup">Setup</a>
         </div>
+        <div class="board-score" id="board-score"></div>
       </div>
     `;
 
@@ -509,12 +574,17 @@
     async function tick() {
       try {
         const m = await resolveActiveMatch();
-        SWOverlay.mount(box, m, { brand: s.clubLabel || "Scorers Window" });
+        SWOverlay.mount(box, m, { brand: m?.demo ? "DEMO · LPCC" : s.clubLabel || "Scorers Window" });
       } catch (e) {
         SWOverlay.mount(box, null, { brand: "Scorers Window", extra: e.message });
       }
     }
 
+    document.getElementById("btn-select-demo")?.addEventListener("click", () => {
+      if (!selectDemoMatch()) return;
+      toast("Demo match selected");
+      tick();
+    });
     document.getElementById("btn-board-refresh")?.addEventListener("click", tick);
     await tick();
     stopActivePoll();

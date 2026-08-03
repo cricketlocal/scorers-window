@@ -331,6 +331,16 @@ h2 {
   border-radius: 10px;
 }
 
+/* —— Demo select —— */
+.demo-select-card {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.08), var(--bg-card));
+}
+
+.demo-select-card h2 {
+  color: #fde68a;
+}
+
 /* —— Match list —— */
 .match-list {
   display: flex;
