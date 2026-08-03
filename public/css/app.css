@@ -669,31 +669,34 @@ h2 {
   padding: 0;
 }
 
+/* Compact + ~50% transparent score bar */
 .overlay-bar {
-  margin: 0 2.5% 3%;
-  padding: 14px 18px 16px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(6, 20, 13, 0.92), rgba(10, 31, 20, 0.96));
-  border: 1px solid rgba(74, 222, 128, 0.35);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
+  margin: 0 3% 2%;
+  padding: 6px 12px 7px;
+  border-radius: 10px;
+  background: rgba(6, 20, 13, 0.5);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   font-family: var(--font);
   color: #ecfdf5;
+  line-height: 1.15;
 }
 
 .overlay-bar .ob-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .overlay-bar .ob-live {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
+  gap: 4px;
+  font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   color: #fca5a5;
@@ -701,11 +704,11 @@ h2 {
 
 .overlay-bar .ob-live::before {
   content: "";
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 10px #ef4444;
+  box-shadow: 0 0 6px #ef4444;
 }
 
 .overlay-bar .ob-live.ob-demo {
@@ -714,24 +717,29 @@ h2 {
 
 .overlay-bar .ob-live.ob-demo::before {
   background: #fbbf24;
-  box-shadow: 0 0 10px #fbbf24;
+  box-shadow: 0 0 6px #fbbf24;
 }
 
 .overlay-bar.demo {
-  border-color: rgba(251, 191, 36, 0.45);
+  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(6, 20, 13, 0.5);
 }
 
 .overlay-bar .ob-status {
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   color: #a7f3d0;
   opacity: 0.9;
   text-align: right;
+  max-width: 55%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .overlay-bar .ob-teams {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -744,24 +752,25 @@ h2 {
 }
 
 .overlay-bar .ob-name {
-  font-size: clamp(0.95rem, 2.4vw, 1.25rem);
+  font-size: clamp(0.7rem, 1.6vw, 0.9rem);
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.15;
 }
 
 .overlay-bar .ob-score {
-  font-size: clamp(1.35rem, 3.5vw, 2rem);
+  font-size: clamp(0.95rem, 2.2vw, 1.2rem);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #4ade80;
-  line-height: 1.1;
-  margin-top: 2px;
+  line-height: 1.05;
+  margin-top: 0;
 }
 
 .overlay-bar .ob-vs {
-  font-size: 0.75rem;
+  font-size: 0.55rem;
   font-weight: 700;
   color: #6ee7b7;
   opacity: 0.7;
@@ -771,47 +780,47 @@ h2 {
 .overlay-bar .ob-foot {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
-  font-size: 0.72rem;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.55rem;
   color: #86efac;
   opacity: 0.85;
 }
 
-/* Batters / bowler / last ball */
+/* Batters / bowler / last ball — compact */
 .overlay-bar .ob-detail {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(74, 222, 128, 0.2);
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(74, 222, 128, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 3px;
 }
 
 .overlay-bar .ob-players {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px 14px;
+  gap: 4px 10px;
 }
 
 .overlay-bar .ob-batter,
 .overlay-bar .ob-bowler {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 4px 10px;
+  gap: 0 8px;
   align-items: baseline;
   min-width: 0;
 }
 
 .overlay-bar .ob-bowler {
   grid-template-columns: auto 1fr auto;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 10px;
-  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 2px 8px;
 }
 
 .overlay-bar .ob-role {
-  font-size: 0.65rem;
+  font-size: 0.5rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -826,7 +835,7 @@ h2 {
 }
 
 .overlay-bar .ob-pname {
-  font-size: clamp(0.85rem, 2vw, 1.05rem);
+  font-size: clamp(0.68rem, 1.5vw, 0.82rem);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -836,7 +845,7 @@ h2 {
 
 .overlay-bar .ob-pruns {
   font-variant-numeric: tabular-nums;
-  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  font-size: clamp(0.75rem, 1.6vw, 0.9rem);
   color: #4ade80;
   white-space: nowrap;
 }
@@ -846,7 +855,7 @@ h2 {
 }
 
 .overlay-bar .ob-balls {
-  font-size: 0.78em;
+  font-size: 0.75em;
   color: #86efac;
   opacity: 0.9;
   font-weight: 600;
@@ -857,12 +866,12 @@ h2 {
 }
 
 .overlay-bar .ob-batter.on-strike {
-  box-shadow: inset 3px 0 0 #fbbf24;
-  padding-left: 8px;
+  box-shadow: inset 2px 0 0 #fbbf24;
+  padding-left: 5px;
 }
 
 .overlay-bar .ob-muted {
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   color: #86efac;
   opacity: 0.65;
 }
@@ -871,18 +880,18 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 4px 8px;
 }
 
 .overlay-bar .ob-balls-row .ob-role {
   grid-column: auto;
-  margin-right: 4px;
+  margin-right: 2px;
 }
 
 .overlay-bar .ob-balls {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 3px;
   align-items: center;
 }
 
@@ -890,13 +899,13 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.65rem;
-  height: 1.65rem;
-  padding: 0 6px;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 4px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.58rem;
   font-weight: 800;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #e8f5e9;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
@@ -943,79 +952,80 @@ h2 {
 
 .overlay-bar .ob-last-callout {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: 0.58rem;
   color: #bbf7d0;
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
 }
 
 .overlay-bar .ob-last-callout em {
   font-style: normal;
-  font-size: 0.65rem;
+  font-size: 0.5rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.75;
 }
 
 .overlay-bar .ob-last-callout strong {
-  font-size: 1rem;
+  font-size: 0.72rem;
   color: #4ade80;
-}
-
-.overlay-bar.compact .ob-detail {
-  margin-top: 8px;
-  padding-top: 8px;
-  gap: 6px;
-}
-
-.overlay-bar.compact .ob-players {
-  gap: 6px 10px;
-}
-
-.overlay-bar.compact .ob-pname {
-  font-size: 0.8rem;
-}
-
-.overlay-bar.compact .ob-pruns {
-  font-size: 0.9rem;
-}
-
-.overlay-bar.compact .ob-ball {
-  min-width: 1.4rem;
-  height: 1.4rem;
-  font-size: 0.65rem;
-}
-
-.overlay-bar.compact .ob-last-callout {
-  font-size: 0.7rem;
-}
-
-.overlay-bar.compact .ob-role {
-  font-size: 0.58rem;
 }
 
 .overlay-bar.waiting .ob-score {
   color: #86efac;
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 600;
 }
 
-/* Compact strip for in-app preview */
+/* Compact strip for in-app preview (Go Live camera card) */
 .overlay-bar.compact {
   margin: 0;
   border-radius: 0;
-  padding: 10px 12px 12px;
+  padding: 5px 10px 6px;
   border: none;
-  border-top: 1px solid rgba(74, 222, 128, 0.35);
+  border-top: 1px solid rgba(74, 222, 128, 0.3);
+  background: rgba(6, 20, 13, 0.55);
 }
 
 .overlay-bar.compact .ob-name {
-  font-size: 0.85rem;
+  font-size: 0.72rem;
 }
 
 .overlay-bar.compact .ob-score {
-  font-size: 1.15rem;
+  font-size: 0.9rem;
+}
+
+.overlay-bar.compact .ob-detail {
+  margin-top: 4px;
+  padding-top: 4px;
+  gap: 2px;
+}
+
+.overlay-bar.compact .ob-players {
+  gap: 3px 8px;
+}
+
+.overlay-bar.compact .ob-pname {
+  font-size: 0.68rem;
+}
+
+.overlay-bar.compact .ob-pruns {
+  font-size: 0.75rem;
+}
+
+.overlay-bar.compact .ob-ball {
+  min-width: 1.05rem;
+  height: 1.05rem;
+  font-size: 0.55rem;
+}
+
+.overlay-bar.compact .ob-last-callout {
+  font-size: 0.55rem;
+}
+
+.overlay-bar.compact .ob-role {
+  font-size: 0.48rem;
 }
 
 /* —— Board page (viewer) —— */
