@@ -724,6 +724,8 @@
     sessionStorage.setItem("sw-on-air", "1");
 
     const hasKey = SWStream?.hasStreamKey?.();
+    const ytUrl = youtubeWatchUrl();
+    const ytId = (SWHub.loadSettings().youtubeVideoId || "").trim();
 
     main().innerHTML = `
       <div class="live-stage" id="live-stage">
@@ -736,10 +738,19 @@
         <div class="live-stage-chrome">
           <span class="live-pill" id="live-pill">Starting…</span>
           <div class="chrome-actions">
-            <button type="button" class="btn btn-sm btn-live" id="btn-watch-youtube-live">YouTube</button>
             <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip</button>
             <button type="button" class="btn btn-sm btn-ghost" id="btn-end-live-stage">End</button>
           </div>
+        </div>
+        <div class="live-yt-bar" id="live-yt-bar">
+          ${
+            ytUrl
+              ? `<a class="live-yt-link" id="btn-watch-youtube-live" href="${escAttr(ytUrl)}" target="_blank" rel="noopener">
+                  Watch on YouTube ↗
+                </a>
+                <button type="button" class="btn btn-sm btn-ghost live-yt-copy" id="btn-copy-youtube-live">Copy link</button>`
+              : `<a class="live-yt-link live-yt-link--setup" href="#/setup">Set video ID for YouTube link</a>`
+          }
         </div>
         <div class="live-stage-score">
           <div class="overlay-root" id="overlay-root"></div>
@@ -847,7 +858,16 @@
       }
     });
 
-    document.getElementById("btn-watch-youtube-live")?.addEventListener("click", () => openYouTubeWatch());
+    document.getElementById("btn-copy-youtube-live")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = youtubeWatchUrl();
+      if (!url) {
+        toast("Add YouTube video ID in Setup first");
+        return;
+      }
+      copyText(url, "YouTube link copied");
+    });
 
     document.getElementById("btn-end-live-stage")?.addEventListener("click", () => {
       onAir = false;

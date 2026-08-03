@@ -659,6 +659,59 @@ h2 {
   pointer-events: none;
 }
 
+/* YouTube link strip on live feed */
+.live-yt-bar {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  z-index: 7;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.live-yt-bar .live-yt-link,
+.live-yt-bar .btn {
+  pointer-events: auto;
+}
+
+.live-yt-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ef4444, #b91c1c);
+  border: 1px solid #7f1d1d;
+  color: #fff !important;
+  font-weight: 800;
+  font-size: 0.9rem;
+  text-decoration: none !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.live-yt-link:hover {
+  filter: brightness(1.08);
+  color: #fff !important;
+}
+
+.live-yt-link--setup {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fde68a !important;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.live-yt-copy {
+  background: rgba(0, 0, 0, 0.55) !important;
+  color: #e8f5e9 !important;
+}
+
 /* OBS guide */
 .obs-steps {
   margin: 0;
