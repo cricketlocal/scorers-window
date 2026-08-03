@@ -614,6 +614,223 @@ h2 {
   opacity: 0.85;
 }
 
+/* Batters / bowler / last ball */
+.overlay-bar .ob-detail {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(74, 222, 128, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overlay-bar .ob-players {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+
+.overlay-bar .ob-batter,
+.overlay-bar .ob-bowler {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.overlay-bar .ob-bowler {
+  grid-template-columns: auto 1fr auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.overlay-bar .ob-role {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+  opacity: 0.85;
+  grid-column: 1 / -1;
+}
+
+.overlay-bar .ob-batter .ob-role,
+.overlay-bar .ob-bowler .ob-role {
+  grid-column: 1 / -1;
+}
+
+.overlay-bar .ob-pname {
+  font-size: clamp(0.85rem, 2vw, 1.05rem);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.overlay-bar .ob-pruns {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  color: #4ade80;
+  white-space: nowrap;
+}
+
+.overlay-bar .ob-pruns strong {
+  font-weight: 800;
+}
+
+.overlay-bar .ob-balls {
+  font-size: 0.78em;
+  color: #86efac;
+  opacity: 0.9;
+  font-weight: 600;
+}
+
+.overlay-bar .ob-batter.on-strike .ob-pname {
+  color: #fef08a;
+}
+
+.overlay-bar .ob-batter.on-strike {
+  box-shadow: inset 3px 0 0 #fbbf24;
+  padding-left: 8px;
+}
+
+.overlay-bar .ob-muted {
+  font-size: 0.78rem;
+  color: #86efac;
+  opacity: 0.65;
+}
+
+.overlay-bar .ob-balls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.overlay-bar .ob-balls-row .ob-role {
+  grid-column: auto;
+  margin-right: 4px;
+}
+
+.overlay-bar .ob-balls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.overlay-bar .ob-ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8f5e9;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.overlay-bar .ob-ball.dot {
+  color: #94a3b8;
+  opacity: 0.85;
+}
+
+.overlay-bar .ob-ball.runs {
+  background: rgba(74, 222, 128, 0.15);
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #bbf7d0;
+}
+
+.overlay-bar .ob-ball.boundary {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #bae6fd;
+}
+
+.overlay-bar .ob-ball.six {
+  background: rgba(167, 139, 250, 0.25);
+  border-color: rgba(167, 139, 250, 0.5);
+  color: #ddd6fe;
+}
+
+.overlay-bar .ob-ball.wicket {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fecaca;
+}
+
+.overlay-bar .ob-ball.extra {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.4);
+  color: #fde68a;
+}
+
+.overlay-bar .ob-ball.last {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.45);
+}
+
+.overlay-bar .ob-last-callout {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: #bbf7d0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.overlay-bar .ob-last-callout em {
+  font-style: normal;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.overlay-bar .ob-last-callout strong {
+  font-size: 1rem;
+  color: #4ade80;
+}
+
+.overlay-bar.compact .ob-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  gap: 6px;
+}
+
+.overlay-bar.compact .ob-players {
+  gap: 6px 10px;
+}
+
+.overlay-bar.compact .ob-pname {
+  font-size: 0.8rem;
+}
+
+.overlay-bar.compact .ob-pruns {
+  font-size: 0.9rem;
+}
+
+.overlay-bar.compact .ob-ball {
+  min-width: 1.4rem;
+  height: 1.4rem;
+  font-size: 0.65rem;
+}
+
+.overlay-bar.compact .ob-last-callout {
+  font-size: 0.7rem;
+}
+
+.overlay-bar.compact .ob-role {
+  font-size: 0.58rem;
+}
+
 .overlay-bar.waiting .ob-score {
   color: #86efac;
   font-size: 1rem;

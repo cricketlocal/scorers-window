@@ -87,6 +87,20 @@
   function normaliseMatch(m) {
     if (!m) return null;
     const board = m.board && typeof m.board === "object" ? m.board : {};
+    const detail =
+      m.detail ||
+      board.detail ||
+      board.step ||
+      (board.batsmen || board.batters || board.bowler
+        ? {
+            batters: board.batsmen || board.batters,
+            bowler: board.bowler,
+            lastBalls: board.lastBalls || board.recentOvers || board.recentBalls,
+            lastBall: board.lastBall,
+            partnership: board.partnership,
+            situation: board.situation || m.status,
+          }
+        : null);
     return {
       id: String(m.id || m.match_id || board.id || ""),
       site: m.site || board.site || "",
@@ -102,6 +116,7 @@
       competition: m.competition || "",
       playCricketUrl: m.playCricketUrl || "",
       polledAt: m.polledAt || m.polled_at || null,
+      detail: detail || null,
       board,
       raw: m,
     };
