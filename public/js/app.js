@@ -3,7 +3,7 @@
  * Routes: / #/setup #/go-live #/overlay #/board
  */
 (function () {
-  const { SWHub, SWOverlay } = window;
+  const { SWHub, SWOverlay, SWDemo } = window;
   const main = () => document.getElementById("main");
   const hubStatusEl = () => document.getElementById("hub-status");
 
@@ -78,16 +78,38 @@
 
   async function loadMatches() {
     const data = await SWHub.fetchHub();
-    const list = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
+    const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
+    const demo = SWHub.getDemoMatch();
+    const settings = SWHub.loadSettings();
+    const useDemo = settings.useDemoWhenIdle !== false;
+    // Always expose weekend demo for testing; live games first
+    let list = liveList.slice();
+    if (demo && (useDemo || !list.length)) {
+      if (!list.some((m) => m.id === demo.id)) list = [...list, demo];
+    }
     cachedMatches = list;
-    return { list, message: data.message || null, liveCount: data.liveCount ?? list.length };
+    return {
+      list,
+      liveList,
+      demo,
+      message: data.message || null,
+      liveCount: data.liveCount ?? liveList.length,
+      usingDemoOnly: liveList.length === 0 && !!demo,
+    };
   }
 
   async function resolveActiveMatch() {
     const settings = SWHub.loadSettings();
-    const { list } = await loadMatches();
+    const { list, demo } = await loadMatches();
+
+    // Explicit weekend demo id
+    if (settings.selectedMatchId && (SWDemo?.isDemoId?.(settings.selectedMatchId) || settings.selectedMatchId === demo?.id)) {
+      activeMatch = demo || SWHub.getDemoMatch();
+      return activeMatch;
+    }
+
     if (settings.selectedMatchId) {
-      let m = list.find((x) => x.id === settings.selectedMatchId);
+      let m = list.find((x) => x.id === settings.selectedMatchId && !x.demo);
       if (!m) {
         try {
           const detail = await SWHub.fetchMatch(settings.selectedMatchId, settings.selectedSite);
@@ -102,10 +124,15 @@
           m = null;
         }
       }
-      activeMatch = m;
-      return m;
+      if (m) {
+        activeMatch = m;
+        return m;
+      }
     }
-    activeMatch = list[0] || null;
+
+    // Prefer a real live match; otherwise weekend demo
+    const live = list.find((x) => x.live && !x.demo);
+    activeMatch = live || demo || list[0] || null;
     return activeMatch;
   }
 
@@ -115,13 +142,31 @@
     setOverlayMode(false);
     setNav("home");
     const s = SWHub.loadSettings();
+    const demo = SWHub.getDemoMatch();
     const hasKey = !!s.youtubeStreamKey;
     const hasYt = !!s.youtubeVideoId;
     const hasMatch = !!s.selectedMatchId;
+    const demoActive = demo && (s.selectedMatchId === demo.id || SWDemo?.isDemoId?.(s.selectedMatchId));
 
     main().innerHTML = `
       <h1>Scorers Window</h1>
       <p class="lead">Phone / PWA → pick match → Go Live → camera + <strong>our</strong> Play-Cricket overlay → YouTube.</p>
+
+      <div class="card">
+        <h2>Weekend demo score</h2>
+        <p class="muted" style="margin:0 0 8px">
+          <strong>${esc(demo?.date || "Sat 1 Aug 2026")}</strong> · ${esc(demo?.competition || "DCCL Div 3 South")}
+        </p>
+        <p style="margin:0 0 4px;font-weight:700">${esc(demo?.homeTeam || "LPCC")} <span class="muted">vs</span> ${esc(demo?.awayTeam || "Brailsford")}</p>
+        <p style="margin:0 0 8px;color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums">
+          ${esc(demo?.homeScore || "—")} &nbsp;·&nbsp; ${esc(demo?.awayScore || "—")}
+        </p>
+        <p class="muted" style="margin:0 0 12px;font-size:0.85rem">${esc(demo?.status || "")} · Play-Cricket #${esc(demo?.id || "")}</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-use-demo">Use demo on overlay</button>
+          <a class="btn btn-ghost" href="#/overlay">Open overlay</a>
+        </div>
+      </div>
 
       <div class="card">
         <h2>Setup checklist</h2>
@@ -129,7 +174,7 @@
           <li class="${s.hubUrl ? "done" : ""}"><span class="dot"></span><span>Hub connected (${esc(shortUrl(s.hubUrl))})</span></li>
           <li class="${hasKey ? "done" : ""}"><span class="dot"></span><span>YouTube stream key saved ${hasKey ? "" : "(optional for MVP overlay)"}</span></li>
           <li class="${hasYt ? "done" : ""}"><span class="dot"></span><span>YouTube video ID for embed ${hasYt ? `(${esc(s.youtubeVideoId)})` : ""}</span></li>
-          <li class="${hasMatch ? "done" : ""}"><span class="dot"></span><span>Match selected ${hasMatch ? `(#${esc(s.selectedMatchId)})` : ""}</span></li>
+          <li class="${hasMatch || demoActive ? "done" : ""}"><span class="dot"></span><span>Match selected ${demoActive ? "(weekend demo)" : hasMatch ? `(#${esc(s.selectedMatchId)})` : ""}</span></li>
         </ul>
         <div class="row-actions">
           <a class="btn btn-primary" href="#/setup">Setup</a>
@@ -139,7 +184,7 @@
 
       <div class="card">
         <h2>Overlay for OBS</h2>
-        <p class="muted" style="margin:0 0 12px">Use as a <strong>Browser Source</strong> (transparent background). Scores poll the Cricket Local live hub.</p>
+        <p class="muted" style="margin:0 0 12px">Use as a <strong>Browser Source</strong> (transparent background). Shows weekend demo until a live hub match is selected.</p>
         <div class="row-actions">
           <a class="btn" href="#/overlay" target="_blank" rel="noopener">Open overlay</a>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy overlay URL</button>
@@ -152,6 +197,18 @@
         <a class="btn" href="#/board">Open board</a>
       </div>
     `;
+
+    document.getElementById("btn-use-demo")?.addEventListener("click", () => {
+      const d = SWHub.getDemoMatch();
+      if (!d) return;
+      SWHub.saveSettings({
+        selectedMatchId: d.id,
+        selectedSite: d.site,
+        clubLabel: "Lullington Park CC",
+        useDemoWhenIdle: true,
+      });
+      toast("Weekend demo selected — open Overlay");
+    });
 
     document.getElementById("btn-copy-overlay")?.addEventListener("click", async () => {
       const url = `${location.origin}${location.pathname}#/overlay`;
@@ -278,8 +335,8 @@
 
     async function paintMatches() {
       try {
-        const { list, message, liveCount } = await loadMatches();
-        badge.textContent = `${liveCount} live`;
+        const { list, message, liveCount, usingDemoOnly } = await loadMatches();
+        badge.textContent = usingDemoOnly ? "demo" : `${liveCount} live`;
         const selectedId = SWHub.loadSettings().selectedMatchId;
 
         if (!list.length) {
@@ -288,17 +345,23 @@
           return;
         }
 
-        listEl.innerHTML = list
-          .map((m) => {
-            const sel = m.id === selectedId ? " selected" : "";
-            return `
-              <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site)}">
+        listEl.innerHTML =
+          (usingDemoOnly
+            ? `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">No live hub matches — showing <strong>weekend demo</strong> (Sat 1 Aug LPCC v Brailsford).</p>`
+            : "") +
+          list
+            .map((m) => {
+              const sel = m.id === selectedId ? " selected" : "";
+              const tag = m.demo ? "DEMO" : m.live ? "LIVE" : m.completed ? "RESULT" : "MATCH";
+              return `
+              <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site)}" data-demo="${m.demo ? "1" : "0"}">
                 <span class="teams">${esc(m.homeTeam)} vs ${esc(m.awayTeam)}</span>
                 <span class="scores">${esc(m.homeScore)} · ${esc(m.awayScore)}</span>
-                <span class="meta">${esc(m.status || "Live")} · #${esc(m.id)}${m.site ? ` · ${esc(shortUrl(m.site))}` : ""}</span>
+                <span class="meta"><span class="badge ${m.demo ? "" : "badge-live"}" style="${m.demo ? "background:rgba(251,191,36,0.2);color:#fde68a" : ""}">${tag}</span>
+                  ${esc(m.date || m.status || "")} · #${esc(m.id)}</span>
               </button>`;
-          })
-          .join("");
+            })
+            .join("");
 
         listEl.querySelectorAll(".match-item").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -313,8 +376,23 @@
 
         await refreshOverlayPreview();
       } catch (e) {
-        listEl.innerHTML = `<p class="empty">Hub error: ${esc(e.message || e)}</p>`;
-        badge.textContent = "error";
+        // Hub down — still show demo
+        const demo = SWHub.getDemoMatch();
+        if (demo) {
+          badge.textContent = "demo";
+          listEl.innerHTML = `
+            <p class="muted" style="margin:0 0 10px;font-size:0.85rem">Hub error — using weekend demo. (${esc(e.message || e)})</p>
+            <button type="button" class="match-item selected" data-id="${escAttr(demo.id)}" data-site="${escAttr(demo.site)}">
+              <span class="teams">${esc(demo.homeTeam)} vs ${esc(demo.awayTeam)}</span>
+              <span class="scores">${esc(demo.homeScore)} · ${esc(demo.awayScore)}</span>
+              <span class="meta">DEMO · ${esc(demo.date)} · #${esc(demo.id)}</span>
+            </button>`;
+          SWHub.saveSettings({ selectedMatchId: demo.id, selectedSite: demo.site });
+          SWOverlay.mount(previewOverlay, demo, { compact: true, brand: "DEMO · LPCC" });
+        } else {
+          listEl.innerHTML = `<p class="empty">Hub error: ${esc(e.message || e)}</p>`;
+          badge.textContent = "error";
+        }
       }
     }
 

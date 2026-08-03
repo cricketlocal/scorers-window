@@ -47,16 +47,18 @@
         </div>`;
     }
 
-    const liveLabel = match.completed ? "RESULT" : match.live ? "LIVE" : "MATCH";
+    const liveLabel = match.demo ? "DEMO" : match.completed ? "RESULT" : match.live ? "LIVE" : "MATCH";
     const status = match.status || (match.completed ? "Completed" : "In progress");
-    const polled = match.polledAt
-      ? `Updated ${formatAgo(match.polledAt)}`
-      : "";
+    const polled = match.demo
+      ? match.date || "Weekend demo"
+      : match.polledAt
+        ? `Updated ${formatAgo(match.polledAt)}`
+        : "";
 
     return `
-      <div class="overlay-bar${compact ? " compact" : ""}${match.completed ? " waiting" : ""}" data-sw-overlay data-match-id="${esc(match.id)}">
+      <div class="overlay-bar${compact ? " compact" : ""}${match.completed && !match.demo ? " waiting" : ""}${match.demo ? " demo" : ""}" data-sw-overlay data-match-id="${esc(match.id)}">
         <div class="ob-top">
-          <span class="ob-live">${esc(liveLabel)}</span>
+          <span class="ob-live${match.demo ? " ob-demo" : ""}">${esc(liveLabel)}</span>
           <span class="ob-status">${esc(status)}</span>
         </div>
         <div class="ob-teams">

@@ -22,9 +22,11 @@
       hubUrl: DEFAULT_HUB,
       youtubeStreamKey: "",
       youtubeVideoId: "",
-      clubLabel: "Home club",
-      selectedMatchId: "",
-      selectedSite: "",
+      clubLabel: "Lullington Park CC",
+      /** Weekend demo (Sat 1 Aug 2026 LPCC v Brailsford) until a live match is picked */
+      selectedMatchId: "7224658",
+      selectedSite: "https://lpcc.play-cricket.com",
+      useDemoWhenIdle: true,
     };
   }
 
@@ -92,13 +94,23 @@
       awayTeam: m.awayTeam || m.away_team || board.awayTeam || "Away",
       homeScore: pickScore(m.homeScore, m.home_score, board.homeScore),
       awayScore: pickScore(m.awayScore, m.away_score, board.awayScore),
-      status: m.status || board.status || (m.live ? "Live" : ""),
-      live: m.live !== false && m.is_live !== false,
+      status: m.status || m.result || board.status || (m.live ? "Live" : ""),
+      live: !!(m.live || m.is_live) && !m.completed && !m.demo,
       completed: !!(m.completed || board.completed),
+      demo: !!(m.demo || board.demo),
+      date: m.date || board.date || "",
+      competition: m.competition || "",
+      playCricketUrl: m.playCricketUrl || "",
       polledAt: m.polledAt || m.polled_at || null,
       board,
       raw: m,
     };
+  }
+
+  /** Demo card when hub is empty (weekend score for overlay testing). */
+  function getDemoMatch() {
+    const demo = global.SWDemo?.getWeekendDemo?.();
+    return demo ? normaliseMatch(demo) : null;
   }
 
   function pickScore(...vals) {
@@ -145,6 +157,7 @@
     fetchMatch,
     fetchStatus,
     normaliseMatch,
+    getDemoMatch,
     teamLine,
     poll,
   };

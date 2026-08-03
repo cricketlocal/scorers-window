@@ -34,13 +34,27 @@ npm run dev
 Default hub: `https://cricket-local-v5-1.onrender.com`  
 Settings (stream key, video ID, selected match) are stored in the browser (`localStorage`).
 
+## Weekend demo score
+
+When the live hub has no matches, the app uses a real weekend result for overlay testing:
+
+| | |
+|--|--|
+| **Date** | Saturday 1 August 2026 |
+| **Match** | Lullington Park CC 1st XI vs Brailsford & Ednaston CC 1st XI |
+| **Scores** | LPCC **190 all out (43.3)** · Brailsford **194/6 (35.1)** |
+| **Result** | Brailsford & Ednaston won |
+| **Play-Cricket** | `#7224658` · [print scorecard](https://lpcc.play-cricket.com/website/results/7224658/print) |
+
+Home → **Use demo on overlay**, or open `/#/overlay` (default selection).
+
 ## Pages
 
 | Route | Purpose |
 |-------|---------|
-| `/` | Home — setup checklist + open Go Live / Overlay |
+| `/` | Home — weekend demo + setup checklist + Go Live / Overlay |
 | `/#/setup` | YouTube stream key + hub URL (localStorage for now) |
-| `/#/go-live` | Pick live match, camera preview, Go Live (MVP: preview + overlay) |
+| `/#/go-live` | Pick live match (or demo), camera preview, Go Live |
 | `/#/overlay` | Full-window scoreboard for OBS browser source or stream kit |
 | `/#/board` | Rich board + optional YouTube embed when a stream id is set |
 

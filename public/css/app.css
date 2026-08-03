@@ -534,6 +534,19 @@ h2 {
   box-shadow: 0 0 10px #ef4444;
 }
 
+.overlay-bar .ob-live.ob-demo {
+  color: #fde68a;
+}
+
+.overlay-bar .ob-live.ob-demo::before {
+  background: #fbbf24;
+  box-shadow: 0 0 10px #fbbf24;
+}
+
+.overlay-bar.demo {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
 .overlay-bar .ob-status {
   font-size: 0.78rem;
   color: #a7f3d0;
