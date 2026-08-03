@@ -618,6 +618,43 @@ h2 {
   text-align: center;
 }
 
+/* Viewer watch page */
+body.watch-mode .nav a:not([data-nav="watch"]) {
+  opacity: 0.55;
+}
+
+.watch-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.watch-head h1 {
+  margin-bottom: 4px;
+}
+
+.watch-lead {
+  margin-bottom: 16px;
+}
+
+.watch-score {
+  margin-top: 4px;
+}
+
+.watch-score .overlay-bar {
+  margin: 0;
+  max-width: none;
+}
+
+.watch-footnote {
+  margin: 14px 0 0;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.watch-video-placeholder {
+  text-align: center;
+}
+
 /* Tip when someone opens #/overlay expecting video */
 .overlay-no-cam-tip {
   position: fixed;

@@ -57,7 +57,8 @@ Home → **Use demo on overlay**, or open `/#/overlay` (default selection).
 | `/#/go-live` | Pick match (or demo), camera preview, Go Live |
 | `/#/live` | **Phone broadcast** — full-screen camera + score overlay |
 | `/#/overlay` | **OBS only** — transparent score graphics (no camera) |
-| `/#/board` | **Viewers** — scores + optional YouTube embed |
+| `/#/watch` | **Viewers (share this)** — scores, no settings; optional `?v=YOUTUBE_ID` |
+| `/#/board` | Same as Watch (legacy alias) |
 
 ## Roadmap
 

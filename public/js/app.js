@@ -1,6 +1,6 @@
 /**
  * Scorers Window — hash SPA
- * Routes: / #/setup #/go-live #/live (camera+score) #/overlay (OBS score-only) #/board
+ * Routes: / #/setup #/go-live #/live #/overlay #/watch (viewers, no settings) #/board
  */
 (function () {
   const { SWHub, SWOverlay, SWDemo } = window;
@@ -287,11 +287,22 @@
       </div>
 
       <div class="card">
-        <h2>Viewer board</h2>
-        <p class="muted" style="margin:0 0 12px">Rich board + optional YouTube embed when a video ID is set.</p>
-        <a class="btn" href="#/board">Open board</a>
+        <h2>Share with fans (no settings)</h2>
+        <p class="muted" style="margin:0 0 12px">
+          Viewers open this link — scores only, no setup. Optional: add
+          <span class="mono">?v=YOUTUBE_ID</span> to embed the stream too.
+        </p>
+        <p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all" id="watch-url-display"></p>
+        <div class="row-actions">
+          <a class="btn btn-primary" href="#/watch">Open Watch</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-watch">Copy Watch link</button>
+        </div>
       </div>
     `;
+
+    const watchUrl = `${location.origin}${location.pathname}#/watch`;
+    const watchEl = document.getElementById("watch-url-display");
+    if (watchEl) watchEl.textContent = watchUrl;
 
     document.getElementById("btn-select-demo")?.addEventListener("click", () => {
       if (!selectDemoMatch()) return;
@@ -305,6 +316,16 @@
       try {
         await navigator.clipboard.writeText(url);
         toast("Overlay URL copied");
+      } catch {
+        toast(url);
+      }
+    });
+
+    document.getElementById("btn-copy-watch")?.addEventListener("click", async () => {
+      const url = `${location.origin}${location.pathname}#/watch`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast("Watch link copied — send this to fans");
       } catch {
         toast(url);
       }
@@ -779,36 +800,58 @@
     stopPoll = SWHub.poll(tick, 12_000);
   }
 
-  async function viewBoard() {
+  /**
+   * Viewer page — no setup required.
+   * Share: https://scorers-window.onrender.com/#/watch
+   * Optional YouTube in the link: #/watch?v=VIDEO_ID
+   * Shows hub live match, else weekend demo. Auto-refreshes.
+   */
+  async function viewWatch() {
     setOverlayMode(false);
-    setNav("board");
+    setNav("watch");
     main().classList.add("main--wide");
+    document.body.classList.add("watch-mode");
+
+    const { params } = route();
     const s = SWHub.loadSettings();
-    const yt = (s.youtubeVideoId || "").trim();
+    // Prefer video ID from shared URL so fans need zero localStorage setup
+    const ytFromUrl = (params.get("v") || params.get("yt") || params.get("video") || "").trim();
+    const yt = ytFromUrl || (s.youtubeVideoId || "").trim();
+
+    // Ensure something is selected for scores without user action
+    if (!s.selectedMatchId) {
+      selectDemoMatch();
+    }
 
     main().innerHTML = `
-      <h1>Live board</h1>
-      <p class="lead">Viewer page — scores from the hub${yt ? " + YouTube embed" : ". Add a YouTube video ID in Setup to embed the feed."}</p>
-      <div class="board-shell">
-        ${
-          yt
-            ? `<div class="yt-embed">
-                <iframe
-                  src="https://www.youtube.com/embed/${escAttr(yt)}?autoplay=1&mute=1"
-                  title="YouTube live"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowfullscreen
-                  referrerpolicy="strict-origin-when-cross-origin"
-                ></iframe>
-              </div>`
-            : `<div class="card"><p class="muted" style="margin:0">No YouTube video ID set. Example Brailsford weekend: <span class="mono">ZHVBULQZB94</span></p></div>`
-        }
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <button type="button" class="btn btn-sm" id="btn-board-refresh">Refresh score</button>
-          <a class="btn btn-sm btn-ghost" href="#/setup">Setup</a>
+      <div class="watch-page">
+        <header class="watch-head">
+          <h1>Live score</h1>
+          <p class="lead watch-lead">Scores update automatically. No login or setup.</p>
+        </header>
+        <div class="board-shell">
+          ${
+            yt
+              ? `<div class="yt-embed">
+                  <iframe
+                    src="https://www.youtube.com/embed/${escAttr(yt)}?autoplay=1&mute=1"
+                    title="YouTube live"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen
+                    referrerpolicy="strict-origin-when-cross-origin"
+                  ></iframe>
+                </div>`
+              : `<div class="watch-video-placeholder card">
+                  <p style="margin:0 0 6px;font-weight:700">Scoreboard only</p>
+                  <p class="muted" style="margin:0;font-size:0.9rem">
+                    When a stream is on, open the club’s YouTube live link, or use a shared link with
+                    <span class="mono">#/watch?v=VIDEO_ID</span>.
+                  </p>
+                </div>`
+          }
+          <div class="board-score watch-score" id="board-score"></div>
+          <p class="watch-footnote muted">Powered by Scorers Window · Cricket Local hub</p>
         </div>
-        <div class="board-score" id="board-score"></div>
       </div>
     `;
 
@@ -817,21 +860,30 @@
     async function tick() {
       try {
         const m = await resolveActiveMatch();
-        SWOverlay.mount(box, m, { brand: m?.demo ? "DEMO · LPCC" : s.clubLabel || "Scorers Window" });
+        // If still nothing, force demo for viewers
+        const match = m || SWHub.getDemoMatch();
+        SWOverlay.mount(box, match, {
+          brand: match?.demo ? "DEMO · LPCC" : s.clubLabel || "Live",
+        });
       } catch (e) {
-        SWOverlay.mount(box, null, { brand: "Scorers Window", extra: e.message });
+        const demo = SWHub.getDemoMatch();
+        if (demo) SWOverlay.mount(box, demo, { brand: "DEMO · LPCC" });
+        else SWOverlay.mount(box, null, { brand: "Live", extra: e.message });
       }
     }
 
-    document.getElementById("btn-select-demo")?.addEventListener("click", () => {
-      if (!selectDemoMatch()) return;
-      toast("Demo match selected");
-      tick();
-    });
-    document.getElementById("btn-board-refresh")?.addEventListener("click", tick);
     await tick();
     stopActivePoll();
-    stopPoll = SWHub.poll(tick, SWHub.POLL_MS);
+    stopPoll = SWHub.poll(async () => {
+      const p = route().path;
+      if (p !== "/watch" && p !== "/board") return;
+      await tick();
+    }, SWHub.POLL_MS);
+  }
+
+  /** Alias — same as watch (old links) */
+  async function viewBoard() {
+    return viewWatch();
   }
 
   function viewNotFound() {
@@ -863,6 +915,7 @@
   async function render() {
     stopActivePoll();
     const { path } = route();
+    document.body.classList.remove("watch-mode");
     // Keep camera when moving between Go Live control room and Live cam composite
     if (!isCameraRoute(path)) {
       if (onAir) onAir = false;
@@ -876,7 +929,7 @@
       else if (path === "/go-live") await viewGoLive();
       else if (path === "/live") await viewLiveCam();
       else if (path === "/overlay") await viewOverlay();
-      else if (path === "/board") await viewBoard();
+      else if (path === "/watch" || path === "/board") await viewWatch();
       else viewNotFound();
     } catch (e) {
       console.error(e);
