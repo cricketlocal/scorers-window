@@ -11,6 +11,60 @@
   let mediaStream = null;
   let cachedMatches = [];
   let activeMatch = null;
+  /** True while user is in a Go Live session on the control-room page */
+  let onAir = false;
+
+  function cameraIsLive() {
+    return !!(mediaStream && mediaStream.getTracks().some((t) => t.readyState === "live"));
+  }
+
+  function bindCameraToVideo() {
+    const video = document.getElementById("cam");
+    const ph = document.getElementById("cam-ph");
+    if (!video) return;
+    if (cameraIsLive()) {
+      if (video.srcObject !== mediaStream) video.srcObject = mediaStream;
+      video.play?.().catch(() => {});
+      if (ph) ph.style.display = "none";
+    } else if (ph) {
+      ph.style.display = "";
+    }
+  }
+
+  async function startCamera() {
+    if (cameraIsLive()) {
+      bindCameraToVideo();
+      return mediaStream;
+    }
+    stopCamera();
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true,
+    });
+    bindCameraToVideo();
+    return mediaStream;
+  }
+
+  function updateOnAirUi() {
+    const btn = document.getElementById("btn-go-live");
+    const end = document.getElementById("btn-end-live");
+    const pill = document.getElementById("on-air-pill");
+    const note = document.getElementById("go-live-note");
+    if (btn) {
+      btn.textContent = onAir ? "On Air" : "Go Live";
+      btn.disabled = onAir;
+      btn.classList.toggle("btn-live", !onAir);
+    }
+    if (end) end.hidden = !onAir;
+    if (pill) {
+      pill.hidden = !onAir;
+      pill.textContent = onAir ? (cameraIsLive() ? "ON AIR · camera on" : "ON AIR · camera off") : "";
+    }
+    if (note && onAir) {
+      note.textContent =
+        "On air — camera stays on this page. Overlay is open for OBS (or open it again below). RTMP publish to YouTube comes next.";
+    }
+  }
 
   function route() {
     const hash = (location.hash || "#/").replace(/^#/, "") || "/";
@@ -50,6 +104,10 @@
       mediaStream.getTracks().forEach((t) => t.stop());
       mediaStream = null;
     }
+    const video = document.getElementById("cam");
+    if (video) video.srcObject = null;
+    const ph = document.getElementById("cam-ph");
+    if (ph) ph.style.display = "";
   }
 
   function setOverlayMode(on) {
@@ -352,12 +410,13 @@
         <div class="row-actions" style="margin-top:12px">
           <button type="button" class="btn" id="btn-cam">Enable camera</button>
           <button type="button" class="btn btn-live" id="btn-go-live">Go Live</button>
-          <a class="btn btn-ghost" href="#/overlay" target="_blank" rel="noopener">Overlay only</a>
+          <button type="button" class="btn btn-ghost" id="btn-end-live" hidden>End Live</button>
+          <a class="btn btn-ghost" href="#/overlay" target="_blank" rel="noopener" id="btn-overlay-tab">Overlay (new tab)</a>
         </div>
+        <p class="badge badge-live" id="on-air-pill" hidden style="margin-top:12px"></p>
         <p class="hint muted" id="go-live-note" style="margin-top:12px">
-          MVP: Go Live keeps this page as your control room. Paste the overlay URL into OBS Browser Source
-          while you stream from YouTube Studio / Streamlabs with key
-          ${s.youtubeStreamKey ? "saved" : "(add stream key in Setup)"}.
+          Go Live stays on this page with the camera on. Overlay opens in a <strong>new tab</strong> for OBS
+          (does not turn the camera off). Stream key ${s.youtubeStreamKey ? "saved" : "optional in Setup"}.
         </p>
       </div>
     `;
@@ -472,25 +531,19 @@
 
     document.getElementById("btn-cam").addEventListener("click", async () => {
       try {
-        stopCamera();
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: true,
-        });
-        const video = document.getElementById("cam");
-        video.srcObject = mediaStream;
-        document.getElementById("cam-ph").style.display = "none";
+        await startCamera();
         toast("Camera on");
+        updateOnAirUi();
       } catch (e) {
         toast("Camera denied or unavailable");
         console.warn(e);
       }
     });
 
-    document.getElementById("btn-go-live").addEventListener("click", () => {
+    document.getElementById("btn-go-live").addEventListener("click", async () => {
       const set = SWHub.loadSettings();
       if (!set.selectedMatchId && !cachedMatches[0]) {
-        toast("Select a live match first (or wait for hub)");
+        toast("Select a match or demo first");
         return;
       }
       if (!set.selectedMatchId && cachedMatches[0]) {
@@ -499,15 +552,50 @@
           selectedSite: cachedMatches[0].site || "",
         });
       }
-      toast("Control room live — open Overlay in OBS; RTMP publish coming soon");
-      location.hash = "#/overlay";
+
+      // Stay on Go Live — do NOT navigate to overlay (that was killing the camera)
+      try {
+        await startCamera();
+      } catch (e) {
+        toast("Allow camera to go live, or use Overlay-only in a new tab");
+        console.warn(e);
+        // Still mark on-air for score overlay workflow without camera
+      }
+
+      onAir = true;
+      updateOnAirUi();
+      await refreshOverlayPreview();
+
+      // Open overlay in a separate tab so this page keeps the camera
+      const overlayUrl = `${location.origin}${location.pathname}#/overlay`;
+      try {
+        window.open(overlayUrl, "sw-overlay", "noopener,noreferrer");
+      } catch {
+        /* popup blocked — user can use Overlay (new tab) link */
+      }
+
+      toast("On air — camera stays here; overlay opened for OBS");
     });
+
+    document.getElementById("btn-end-live")?.addEventListener("click", () => {
+      onAir = false;
+      stopCamera();
+      updateOnAirUi();
+      toast("Live ended — camera off");
+    });
+
+    // Re-bind camera if we still hold a stream (e.g. soft re-entry)
+    bindCameraToVideo();
+    updateOnAirUi();
 
     await paintMatches();
     stopActivePoll();
     stopPoll = SWHub.poll(async () => {
       if (route().path !== "/go-live") return;
+      // Only refresh match list + score strip — never tear down the <video>
       await paintMatches();
+      bindCameraToVideo();
+      updateOnAirUi();
     }, SWHub.POLL_MS);
   }
 
@@ -619,9 +707,12 @@
 
   async function render() {
     stopActivePoll();
-    // Keep camera only on go-live
     const { path } = route();
-    if (path !== "/go-live") stopCamera();
+    // Leaving Go Live ends the session and releases the camera
+    if (path !== "/go-live") {
+      if (onAir) onAir = false;
+      stopCamera();
+    }
 
     try {
       if (path === "/" || path === "") await Promise.resolve(viewHome());
