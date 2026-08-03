@@ -1,13 +1,19 @@
 {
   "name": "scorers-window",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Scorers Window — live cricket stream overlay + YouTube Go Live for club cricket",
+  "description": "Scorers Window — phone Go Live with score overlay + YouTube RTMP relay",
+  "main": "server/index.js",
   "scripts": {
-    "start": "npx --yes serve public -l ${PORT:-3000}",
-    "dev": "npx --yes serve public -l 5173"
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "dev:static": "npx --yes serve public -l 5173"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
   }
 }

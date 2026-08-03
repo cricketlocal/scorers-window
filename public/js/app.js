@@ -235,15 +235,15 @@
       <h1>Scorers Window</h1>
       <p class="lead phone-flow-lead">
         <strong>On the phone:</strong> open this site → pick the game → <strong>Go Live</strong>.<br/>
-        Stream key is entered <strong>once</strong> in Setup — not every match.
+        Stream key once in Setup. Camera + scores go to <strong>YouTube</strong> via our relay (Docker deploy).
       </p>
 
       <div class="card phone-hero-card">
         <h2>Match day (3 taps)</h2>
         <ol class="obs-steps phone-flow-steps">
-          <li><strong>Setup</strong> (once) — paste YouTube stream key</li>
+          <li><strong>Setup</strong> (once) — YouTube stream key</li>
           <li><strong>Go Live</strong> — select game (or demo)</li>
-          <li>Tap <strong>Go Live</strong> — camera + scores on air</li>
+          <li>Tap <strong>Go Live</strong> — phone streams to YouTube with scores</li>
         </ol>
         <div class="row-actions">
           <a class="btn btn-live" href="#/go-live" style="min-width:160px;font-size:1.05rem">Go Live</a>
@@ -337,10 +337,16 @@
           <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="from youtube.com/live/VIDEO_ID" />
           <p class="hint">Not required for Go Live. Only if you share <span class="mono">#/watch?v=…</span> with video.</p>
         </div>
+        <div class="field">
+          <label for="streamRelayUrl">Stream relay URL (optional)</label>
+          <input id="streamRelayUrl" name="streamRelayUrl" type="url" value="${escAttr(s.streamRelayUrl || "")}" placeholder="Leave blank = this site" />
+          <p class="hint">Default: same host as this app (Docker deploy with ffmpeg). Only set if relay runs elsewhere.</p>
+        </div>
         <div class="row-actions">
           <button type="submit" class="btn btn-primary">Save</button>
           <a class="btn btn-live" href="#/go-live">Go Live →</a>
           <button type="button" class="btn btn-ghost" id="btn-test-hub">Test hub</button>
+          <button type="button" class="btn btn-ghost" id="btn-test-relay">Test YouTube relay</button>
         </div>
       </form>
 
@@ -355,6 +361,7 @@
         clubLabel: String(fd.get("clubLabel") || "").trim(),
         youtubeStreamKey: String(fd.get("youtubeStreamKey") || "").trim(),
         youtubeVideoId: String(fd.get("youtubeVideoId") || "").trim(),
+        streamRelayUrl: String(fd.get("streamRelayUrl") || "").trim(),
       });
       toast(SWStream?.hasStreamKey?.() ? "Saved — stream key ready for Go Live" : "Saved");
       refreshHubStatus();
@@ -376,6 +383,25 @@
         refreshHubStatus();
       } catch (err) {
         box.innerHTML = `<h2>Hub error</h2><p class="muted">${esc(err.message || err)}</p>`;
+      }
+    });
+
+    document.getElementById("btn-test-relay")?.addEventListener("click", async () => {
+      const input = document.getElementById("streamRelayUrl");
+      if (input?.value != null) SWHub.saveSettings({ streamRelayUrl: input.value.trim() });
+      const box = document.getElementById("hub-test-result");
+      box.hidden = false;
+      box.innerHTML = `<p class="muted">Testing relay…</p>`;
+      try {
+        const st = await SWStream.probeRelay();
+        box.innerHTML = `
+          <h2>YouTube relay</h2>
+          <p>ffmpeg: <strong>${st.ffmpeg || st.youtubeRelay ? "yes" : "no"}</strong></p>
+          <p>YouTube push: <strong>${st.youtubeRelay || st.ffmpeg ? "ready" : "not available"}</strong></p>
+          <p class="muted mono">${esc(JSON.stringify(st).slice(0, 280))}</p>
+        `;
+      } catch (err) {
+        box.innerHTML = `<h2>Relay error</h2><p class="muted">${esc(err.message || err)}</p>`;
       }
     });
   }
@@ -674,10 +700,24 @@
       });
       if (SWStream && mediaStream && video) {
         SWStream.startComposite(video, mediaStream, m);
-        const pub = await SWStream.beginPublish();
+        const pub = await SWStream.beginPublish({
+          onStatus: (st) => {
+            const pill = document.getElementById("live-pill");
+            if (pill) {
+              if (st.state === "live") pill.textContent = "ON AIR · YouTube";
+              else if (st.state === "connecting") pill.textContent = "Connecting…";
+              else if (st.state === "local") pill.textContent = "ON AIR · phone";
+              else if (st.state === "error") pill.textContent = "ON AIR · local";
+              else pill.textContent = "ON AIR";
+            }
+            if (st.message) setStatus(st.message);
+          },
+        });
         const pill = document.getElementById("live-pill");
         if (pill) {
-          pill.textContent = pub.ok ? "ON AIR" : "ON AIR · local";
+          if (pub.mode === "youtube") pill.textContent = "ON AIR · YouTube";
+          else if (pub.ok) pill.textContent = "ON AIR · phone";
+          else pill.textContent = "ON AIR · local";
         }
         setStatus(
           pub.message ||

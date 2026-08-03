@@ -13,12 +13,25 @@ Viewers can also open the LIVE board (and later embed the same YouTube feed).
 4. Tap **Go Live** → full-screen camera + score composite  
 5. Fans: `#/watch` (scores) and/or the YouTube link  
 
-**Note:** Browsers cannot open YouTube RTMP directly. The phone builds a **camera+score composite** and stores the stream key for a cloud publish step. Until that relay is live, use **OBS on a PC** (`#/obs`) to burn the overlay into YouTube.  
+### YouTube from the phone (built-in relay)
+
+Browsers cannot speak RTMP. This app:
+
+1. Composites **camera + score** on the phone  
+2. Sends the video over **WebSocket** to our server  
+3. Server **ffmpeg** republishes to **YouTube RTMP** with your saved stream key  
+
+Deploy as a **Docker** web service (see `Dockerfile` / `render.yaml`) so ffmpeg is available.  
+Setup → **Test YouTube relay** should show `ffmpeg: yes`.
+
+If relay is missing, Go Live still runs **on the phone**; use **OBS** (`#/obs`) as fallback.
 
 ## Advanced
 
 - `#/obs` — OBS → YouTube checklist (PC encoder)  
 - `#/overlay?obs=1` — Browser Source URL  
+- `GET /api/health` — relay + ffmpeg status  
+
 
 
 ## Local

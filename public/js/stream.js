@@ -11,6 +11,10 @@
   let audioTracks = [];
   let running = false;
   let lastMatch = null;
+  let recorder = null;
+  let ws = null;
+  let publishState = "idle"; // idle | connecting | live | error | local
+  let onStatus = null;
 
   function ensureCanvas(w, h) {
     if (!canvas) {
@@ -197,35 +201,269 @@
     return `${k.slice(0, 3)}…${k.slice(-3)}`;
   }
 
+  function setStatus(partial) {
+    if (partial.state) publishState = partial.state;
+    if (typeof onStatus === "function") onStatus({ state: publishState, ...partial });
+  }
+
+  function wsUrl() {
+    const s = global.SWHub?.loadSettings?.() || {};
+    const custom = String(s.streamRelayUrl || "").trim();
+    if (custom) {
+      // allow https://host or wss://host or full wss://host/ws/stream
+      if (custom.startsWith("ws")) {
+        return custom.includes("/ws/") ? custom : custom.replace(/\/+$/, "") + "/ws/stream";
+      }
+      const u = custom.replace(/^http/, "ws").replace(/\/+$/, "");
+      return u + "/ws/stream";
+    }
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${location.host}/ws/stream`;
+  }
+
+  function pickRecorderMime() {
+    const types = [
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=h264,opus",
+      "video/webm",
+    ];
+    for (const t of types) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "";
+  }
+
+  async function probeRelay() {
+    try {
+      const base = (global.SWHub?.loadSettings?.()?.streamRelayUrl || "").trim() || location.origin;
+      const url = base.replace(/\/+$/, "") + "/api/stream/status";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return { ok: false, youtubeRelay: false };
+      return await res.json();
+    } catch {
+      return { ok: false, youtubeRelay: false };
+    }
+  }
+
   /**
-   * Placeholder for cloud RTMP/WHIP publish.
-   * Returns status object for UI.
+   * Start YouTube publish via server ffmpeg relay (MediaRecorder → WebSocket → RTMP).
    */
-  async function beginPublish() {
+  async function beginPublish(handlers = {}) {
+    onStatus = handlers.onStatus || null;
     const key = String(global.SWHub?.loadSettings?.()?.youtubeStreamKey || "").trim();
     if (!key) {
-      return {
+      setStatus({
+        state: "error",
         ok: false,
         mode: "local",
         message: "Add your YouTube stream key once in Setup, then Go Live again.",
-      };
+      });
+      return { ok: false, mode: "local", message: "Stream key required" };
     }
     if (!compositeStream) {
-      return { ok: false, mode: "local", message: "Camera composite not ready." };
+      setStatus({ state: "error", ok: false, mode: "local", message: "Camera composite not ready." });
+      return { ok: false, mode: "local", message: "No composite" };
     }
-    // Browsers cannot open RTMP sockets. Relay (WHIP/RTMP) is the next backend piece.
-    // Until then: on-air composite is ready; key is stored for the relay.
-    return {
-      ok: true,
-      mode: "local-ready",
-      message:
-        "On air with scores. Stream key saved — phone→YouTube push uses this key via cloud relay (next). Picture is camera+overlay.",
-      streamKeySet: true,
-    };
+
+    const probe = await probeRelay();
+    if (!probe.youtubeRelay && !probe.ffmpeg) {
+      // Local static host or server without ffmpeg — still on-air on phone
+      setStatus({
+        state: "local",
+        ok: true,
+        mode: "local-ready",
+        message:
+          "On air on this phone (camera + scores). YouTube relay not available on this host — deploy Docker service with ffmpeg, or use OBS.",
+      });
+      return {
+        ok: true,
+        mode: "local-ready",
+        message: "Local on-air; relay unavailable",
+        streamKeySet: true,
+      };
+    }
+
+    if (typeof MediaRecorder === "undefined") {
+      setStatus({
+        state: "local",
+        ok: true,
+        mode: "local-ready",
+        message: "On air locally. This browser cannot MediaRecorder-publish.",
+      });
+      return { ok: true, mode: "local-ready", message: "No MediaRecorder" };
+    }
+
+    const mime = pickRecorderMime();
+    if (!mime) {
+      setStatus({
+        state: "local",
+        ok: true,
+        mode: "local-ready",
+        message: "On air locally. No supported video encode format in this browser.",
+      });
+      return { ok: true, mode: "local-ready", message: "No mime" };
+    }
+
+    setStatus({ state: "connecting", message: "Connecting to YouTube relay…" });
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      try {
+        ws = new WebSocket(wsUrl());
+        ws.binaryType = "arraybuffer";
+      } catch (e) {
+        setStatus({ state: "error", message: "WebSocket failed: " + (e.message || e) });
+        finish({ ok: false, mode: "error", message: String(e.message || e) });
+        return;
+      }
+
+      const timeout = setTimeout(() => {
+        setStatus({ state: "error", message: "Relay connect timeout" });
+        stopRelayOnly();
+        finish({ ok: false, mode: "error", message: "timeout" });
+      }, 20000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "start", streamKey: key }));
+      };
+
+      ws.onmessage = (ev) => {
+        let msg;
+        try {
+          msg = JSON.parse(String(ev.data));
+        } catch {
+          return;
+        }
+        if (msg.type === "hello") {
+          if (!msg.youtubeRelay && !msg.ffmpeg) {
+            clearTimeout(timeout);
+            setStatus({
+              state: "local",
+              ok: true,
+              message: "Relay has no ffmpeg — on air on phone only.",
+            });
+            stopRelayOnly();
+            finish({ ok: true, mode: "local-ready", message: msg.message });
+          }
+          return;
+        }
+        if (msg.type === "started") {
+          clearTimeout(timeout);
+          try {
+            recorder = new MediaRecorder(compositeStream, {
+              mimeType: mime,
+              videoBitsPerSecond: 2_500_000,
+              audioBitsPerSecond: 128_000,
+            });
+          } catch (e) {
+            setStatus({ state: "error", message: "MediaRecorder: " + e.message });
+            stopRelayOnly();
+            finish({ ok: false, mode: "error", message: e.message });
+            return;
+          }
+          recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+              e.data.arrayBuffer().then((buf) => {
+                try {
+                  ws.send(buf);
+                } catch {
+                  /* */
+                }
+              });
+            }
+          };
+          recorder.onerror = () => {
+            setStatus({ state: "error", message: "Recorder error" });
+          };
+          recorder.start(1000); // 1s chunks
+          setStatus({
+            state: "live",
+            ok: true,
+            mode: "youtube",
+            message: "Streaming to YouTube — leave this screen open",
+            key: msg.key,
+          });
+          finish({
+            ok: true,
+            mode: "youtube",
+            message: "Streaming to YouTube",
+            streamKeySet: true,
+          });
+          return;
+        }
+        if (msg.type === "error") {
+          clearTimeout(timeout);
+          setStatus({
+            state: "error",
+            message: msg.message || "Relay error",
+            code: msg.code,
+          });
+          stopRelayOnly();
+          finish({ ok: false, mode: "error", message: msg.message });
+          return;
+        }
+        if (msg.type === "ended") {
+          setStatus({
+            state: "idle",
+            message: msg.message || "YouTube stream ended",
+          });
+          stopRelayOnly();
+        }
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        setStatus({
+          state: "local",
+          ok: true,
+          message: "Relay unreachable — on air on this phone only (camera + scores).",
+        });
+        stopRelayOnly();
+        finish({ ok: true, mode: "local-ready", message: "WS error — local only" });
+      };
+
+      ws.onclose = () => {
+        if (publishState === "live") {
+          setStatus({ state: "idle", message: "Disconnected from relay" });
+        }
+      };
+    });
+  }
+
+  function stopRelayOnly() {
+    try {
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+    } catch {
+      /* */
+    }
+    recorder = null;
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "stop" }));
+        ws.close();
+      }
+    } catch {
+      /* */
+    }
+    ws = null;
   }
 
   function endPublish() {
+    stopRelayOnly();
     stopComposite();
+    publishState = "idle";
+    onStatus = null;
+  }
+
+  function getPublishState() {
+    return publishState;
   }
 
   global.SWStream = {
@@ -237,5 +475,7 @@
     streamKeyMasked,
     beginPublish,
     endPublish,
+    probeRelay,
+    getPublishState,
   };
 })(typeof window !== "undefined" ? window : globalThis);

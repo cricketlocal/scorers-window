@@ -1,21 +1,17 @@
-# Scorers Window — new Render static site (or web service)
-# Dashboard: New → Blueprint → connect this repo, or Static Site from /public
+# Scorers Window — web service (static app + YouTube RTMP relay)
+# Requires Docker (ffmpeg). Blueprint: connect repo and apply.
 
 services:
   - type: web
     name: scorers-window
-    runtime: static
-    rootDir: .
-    buildCommand: "echo 'Scorers Window static — no build step'"
-    staticPublishPath: public
-    routes:
-      - type: rewrite
-        source: "/*"
-        destination: /index.html
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: public, max-age=60
-      - path: /overlay*
-        name: Cache-Control
-        value: no-store
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MAX_STREAM_SESSIONS
+        value: "3"
+      # Optional override (default YouTube primary ingest)
+      # - key: YT_RTMP_BASE
+      #   value: rtmp://a.rtmp.youtube.com/live2

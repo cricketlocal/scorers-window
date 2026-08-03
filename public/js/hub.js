@@ -22,6 +22,8 @@
       hubUrl: DEFAULT_HUB,
       youtubeStreamKey: "",
       youtubeVideoId: "",
+      /** Optional override for relay host (default: same origin) */
+      streamRelayUrl: "",
       clubLabel: "Lullington Park CC",
       /** Weekend demo (Sat 1 Aug 2026 LPCC v Brailsford) until a live match is picked */
       selectedMatchId: "7224658",
