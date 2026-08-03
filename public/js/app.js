@@ -317,10 +317,12 @@
       <form class="card" id="setup-form">
         <div class="field">
           <label for="youtubeStreamKey">YouTube stream key ${hasKey ? "✓ saved" : ""}</label>
-          <input id="youtubeStreamKey" name="youtubeStreamKey" type="password" autocomplete="off" value="${escAttr(s.youtubeStreamKey)}" placeholder="xxxx-xxxx-xxxx-xxxx" />
+          <input id="youtubeStreamKey" name="youtubeStreamKey" type="password" autocomplete="off" value="${escAttr(SWHub.looksLikeUrlNotStreamKey?.(s.youtubeStreamKey) ? "" : s.youtubeStreamKey)}" placeholder="ab12-cd34-ef56-gh78" />
           <p class="hint">
-            YouTube Studio → Create → Go live → Stream → <strong>Stream key</strong>.
-            Same key every week unless you reset it. Stored only on this phone.
+            Studio → Create → <strong>Go live</strong> → <strong>Stream</strong> → copy <strong>Stream key</strong> only
+            (looks like <span class="mono">xxxx-xxxx-xxxx-xxxx</span>).
+            <strong>Not</strong> the page URL, <strong>not</strong> the video ID.
+            Same key each week unless you reset it.
           </p>
         </div>
         <div class="field">
@@ -374,10 +376,18 @@
       // Accept pasted full URLs and extract id
       const m = videoId.match(/(?:v=|live\/|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
       if (m) videoId = m[1];
+      let streamKey = String(fd.get("youtubeStreamKey") || "").trim();
+      if (SWHub.looksLikeUrlNotStreamKey?.(streamKey)) {
+        toast("That was a YouTube web link — paste the Stream KEY only (with dashes)");
+        streamKey = "";
+      } else if (streamKey && !SWHub.isValidStreamKeyFormat?.(streamKey)) {
+        toast("Stream key looks invalid — copy again from Studio → Stream");
+        streamKey = "";
+      }
       SWHub.saveSettings({
         hubUrl: String(fd.get("hubUrl") || "").trim() || SWHub.DEFAULT_HUB,
         clubLabel: String(fd.get("clubLabel") || "").trim(),
-        youtubeStreamKey: String(fd.get("youtubeStreamKey") || "").trim(),
+        youtubeStreamKey: streamKey,
         youtubeVideoId: videoId,
         streamRelayUrl: relay,
       });

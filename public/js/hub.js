@@ -34,8 +34,33 @@
 
   function saveSettings(partial) {
     const next = { ...loadSettings(), ...partial };
+    // Never store a YouTube page URL as a stream key
+    if (next.youtubeStreamKey && looksLikeUrlNotStreamKey(next.youtubeStreamKey)) {
+      next.youtubeStreamKey = "";
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     return next;
+  }
+
+  /** Stream keys look like xxxx-xxxx-xxxx-xxxx — not https://studio.youtube.com/... */
+  function looksLikeUrlNotStreamKey(key) {
+    const k = String(key || "").trim().toLowerCase();
+    if (!k) return false;
+    if (k.startsWith("http://") || k.startsWith("https://")) return true;
+    if (k.includes("youtube.com") || k.includes("youtu.be") || k.includes("studio.youtube")) return true;
+    if (k.includes("livestreaming") || k.includes("/video/")) return true;
+    // Sanitized URL pastes become long alphanumeric strings without dashes
+    if (k.length > 40 && !k.includes("-")) return true;
+    return false;
+  }
+
+  function isValidStreamKeyFormat(key) {
+    const k = String(key || "").trim();
+    if (!k || looksLikeUrlNotStreamKey(k)) return false;
+    // YouTube keys are typically 4+ groups with dashes, or similar token
+    if (k.length < 10) return false;
+    if (/^x{2,}-x+/i.test(k) || k.includes("xxxx")) return false; // placeholder
+    return true;
   }
 
   function hubBase() {
@@ -169,6 +194,8 @@
     POLL_MS,
     loadSettings,
     saveSettings,
+    looksLikeUrlNotStreamKey,
+    isValidStreamKeyFormat,
     hubBase,
     fetchHub,
     fetchMatch,

@@ -224,9 +224,24 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
-      streamKey = sanitizeKey(msg.streamKey);
-      if (!streamKey || streamKey.length < 8) {
-        send({ type: "error", message: "Valid YouTube stream key required", code: "BAD_KEY" });
+      const rawKey = String(msg.streamKey || "").trim();
+      if (/^https?:\/\//i.test(rawKey) || /youtube\.com|youtu\.be|studio\.youtube|livestreaming/i.test(rawKey)) {
+        send({
+          type: "error",
+          message:
+            "Stream key is wrong: you pasted a YouTube page URL. In Studio open Go live → Stream → copy only the Stream key (xxxx-xxxx-xxxx-xxxx).",
+          code: "BAD_KEY_URL",
+        });
+        return;
+      }
+      streamKey = sanitizeKey(rawKey);
+      if (!streamKey || streamKey.length < 10 || (streamKey.length > 40 && !String(rawKey).includes("-"))) {
+        send({
+          type: "error",
+          message:
+            "Valid YouTube stream key required (usually has dashes). Not the video ID, not a Studio web link.",
+          code: "BAD_KEY",
+        });
         return;
       }
 

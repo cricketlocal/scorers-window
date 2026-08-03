@@ -222,7 +222,11 @@
 
   function hasStreamKey() {
     const s = global.SWHub?.loadSettings?.() || {};
-    return !!(s.youtubeStreamKey && String(s.youtubeStreamKey).trim());
+    const k = String(s.youtubeStreamKey || "").trim();
+    if (!k) return false;
+    if (global.SWHub?.looksLikeUrlNotStreamKey?.(k)) return false;
+    if (global.SWHub?.isValidStreamKeyFormat && !global.SWHub.isValidStreamKeyFormat(k)) return false;
+    return true;
   }
 
   function streamKeyMasked() {
@@ -559,14 +563,15 @@
     clearTimeout(reconnectTimer);
 
     const key = String(global.SWHub?.loadSettings?.()?.youtubeStreamKey || "").trim();
-    if (!key) {
+    if (!key || global.SWHub?.looksLikeUrlNotStreamKey?.(key) || !global.SWHub?.isValidStreamKeyFormat?.(key)) {
       setStatus({
         state: "error",
         ok: false,
         mode: "local",
-        message: "Add your YouTube stream key once in Setup, then Go Live again.",
+        message:
+          "Need a real YouTube STREAM KEY (xxxx-xxxx-…), not a Studio web link. Studio → Go live → Stream → copy Stream key.",
       });
-      return { ok: false, mode: "local", message: "Stream key required" };
+      return { ok: false, mode: "local", message: "Invalid stream key" };
     }
     if (!compositeStream) {
       setStatus({ state: "error", ok: false, mode: "local", message: "Camera composite not ready." });
