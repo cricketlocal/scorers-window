@@ -735,14 +735,34 @@
 
   /**
    * OBS / Streamlabs browser source — transparent score graphics only (no camera).
-   * URL: #/overlay
+   * URL: #/overlay  — for phone camera + score use #/live instead.
+   * Add ?obs=1 to hide the “no camera” tip (for clean OBS capture).
    */
   async function viewOverlay() {
     setOverlayMode(true, { withCamera: false });
     setNav("overlay");
-    main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
+    const { params } = route();
+    const obsClean = params.get("obs") === "1" || params.get("clean") === "1";
+
+    main().innerHTML = `
+      ${
+        obsClean
+          ? ""
+          : `<div class="overlay-no-cam-tip" id="overlay-no-cam-tip" role="note">
+        <strong>No camera on this page</strong>
+        <span>This URL is <em>score graphics only</em> for OBS. Video is on <strong>Live cam</strong>.</span>
+        <a class="btn btn-live btn-sm" href="#/live">Open Live cam + score</a>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-dismiss-tip">Hide tip</button>
+      </div>`
+      }
+      <div class="overlay-root" id="overlay-root"></div>
+    `;
     const root = document.getElementById("overlay-root");
     const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
+
+    document.getElementById("btn-dismiss-tip")?.addEventListener("click", () => {
+      document.getElementById("overlay-no-cam-tip")?.remove();
+    });
 
     async function tick() {
       try {

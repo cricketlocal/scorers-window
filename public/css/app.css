@@ -618,6 +618,46 @@ h2 {
   text-align: center;
 }
 
+/* Tip when someone opens #/overlay expecting video */
+.overlay-no-cam-tip {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: min(520px, 94vw);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fef3c7;
+  font-size: 0.85rem;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.overlay-no-cam-tip strong {
+  width: 100%;
+  color: #fde68a;
+  font-size: 0.95rem;
+}
+
+.overlay-no-cam-tip span {
+  width: 100%;
+  color: #e2e8f0;
+  line-height: 1.35;
+}
+
+.overlay-no-cam-tip em {
+  font-style: normal;
+  color: #fbbf24;
+}
+
 /* —— Full overlay (OBS / stream kit) —— */
 .overlay-root {
   min-height: 100vh;
