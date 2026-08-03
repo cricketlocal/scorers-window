@@ -54,9 +54,10 @@ Home → **Use demo on overlay**, or open `/#/overlay` (default selection).
 |-------|---------|
 | `/` | Home — weekend demo + setup checklist + Go Live / Overlay |
 | `/#/setup` | YouTube stream key + hub URL (localStorage for now) |
-| `/#/go-live` | Pick live match (or demo), camera preview, Go Live |
-| `/#/overlay` | Full-window scoreboard for OBS browser source or stream kit |
-| `/#/board` | Rich board + optional YouTube embed when a stream id is set |
+| `/#/go-live` | Pick match (or demo), camera preview, Go Live |
+| `/#/live` | **Phone broadcast** — full-screen camera + score overlay |
+| `/#/overlay` | **OBS only** — transparent score graphics (no camera) |
+| `/#/board` | **Viewers** — scores + optional YouTube embed |
 
 ## Roadmap
 

@@ -145,6 +145,130 @@ body.overlay-mode .main.main--overlay {
   background: transparent;
 }
 
+/* Camera + score composite (phone broadcast) */
+body.live-cam-mode {
+  background: #000;
+  overflow: hidden;
+}
+
+body.live-cam-mode .topbar,
+body.live-cam-mode .footer {
+  display: none;
+}
+
+body.live-cam-mode #app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #000;
+}
+
+body.live-cam-mode .main.main--overlay {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  background: #000;
+}
+
+.live-stage {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #000;
+  overflow: hidden;
+}
+
+.live-stage-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  z-index: 1;
+}
+
+.live-stage-ph {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: #e8f5e9;
+  background: radial-gradient(circle at 50% 40%, #0a1f14, #000 70%);
+  font-size: 1rem;
+}
+
+.live-stage-ph[hidden] {
+  display: none !important;
+}
+
+.live-stage-score {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.live-stage-score .overlay-root {
+  min-height: 0;
+}
+
+.live-stage-chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.65), transparent);
+  pointer-events: none;
+}
+
+.live-stage-chrome .btn,
+.live-stage-chrome a {
+  pointer-events: auto;
+}
+
+.live-stage-chrome .live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fca5a5;
+  text-transform: uppercase;
+}
+
+.live-stage-chrome .live-pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.live-stage-chrome .chrome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .footer {
   display: flex;
   justify-content: space-between;

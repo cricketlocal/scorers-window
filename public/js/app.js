@@ -1,6 +1,6 @@
 /**
  * Scorers Window — hash SPA
- * Routes: / #/setup #/go-live #/overlay #/board
+ * Routes: / #/setup #/go-live #/live (camera+score) #/overlay (OBS score-only) #/board
  */
 (function () {
   const { SWHub, SWOverlay, SWDemo } = window;
@@ -62,7 +62,7 @@
     }
     if (note && onAir) {
       note.textContent =
-        "On air — camera stays on this page. Overlay is open for OBS (or open it again below). RTMP publish to YouTube comes next.";
+        "On air — open Live cam + score for full-screen camera with graphics. OBS score only is transparent (no camera).";
     }
   }
 
@@ -110,12 +110,17 @@
     if (ph) ph.style.display = "";
   }
 
-  function setOverlayMode(on) {
-    document.body.classList.toggle("overlay-mode", !!on);
+  function setOverlayMode(on, { withCamera = false } = {}) {
+    document.body.classList.toggle("overlay-mode", !!on && !withCamera);
+    document.body.classList.toggle("live-cam-mode", !!withCamera);
     const m = main();
     if (!m) return;
-    m.classList.toggle("main--overlay", !!on);
+    m.classList.toggle("main--overlay", !!on || !!withCamera);
     m.classList.toggle("main--wide", false);
+  }
+
+  function isCameraRoute(path) {
+    return path === "/go-live" || path === "/live";
   }
 
   async function refreshHubStatus() {
@@ -242,8 +247,8 @@
         <p class="muted" style="margin:0 0 12px;font-size:0.85rem">${esc(demo?.status || "")} · Play-Cricket #${esc(demo?.id || "")}</p>
         <div class="row-actions">
           <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <a class="btn" href="#/overlay" id="btn-open-overlay-demo">Open overlay</a>
-          <a class="btn btn-ghost" href="#/go-live">Go Live</a>
+          <a class="btn btn-live" href="#/live" id="btn-open-live-demo">Live cam + score</a>
+          <a class="btn btn-ghost" href="#/go-live">Go Live setup</a>
         </div>
         <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem">
           ${demoActive ? "✓ Demo match is selected" : "Not selected yet — tap the button above"}
@@ -265,11 +270,19 @@
       </div>
 
       <div class="card">
-        <h2>Overlay for OBS</h2>
-        <p class="muted" style="margin:0 0 12px">Use as a <strong>Browser Source</strong> (transparent background). Shows weekend demo until a live hub match is selected.</p>
+        <h2>Phone: camera + score</h2>
+        <p class="muted" style="margin:0 0 12px">Full-screen rear camera with the scoreboard on top. This is what you use on the broadcast phone.</p>
         <div class="row-actions">
-          <a class="btn" href="#/overlay" target="_blank" rel="noopener">Open overlay</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy overlay URL</button>
+          <a class="btn btn-live" href="#/live">Open Live cam</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>OBS score only (no camera)</h2>
+        <p class="muted" style="margin:0 0 12px">Transparent browser source for Streamlabs/OBS. <strong>No camera</strong> — graphics only.</p>
+        <div class="row-actions">
+          <a class="btn" href="#/overlay" target="_blank" rel="noopener">Open OBS overlay</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy OBS URL</button>
         </div>
       </div>
 
@@ -385,7 +398,7 @@
         </p>
         <div class="row-actions">
           <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <a class="btn btn-ghost" href="#/overlay">Show on overlay</a>
+          <a class="btn btn-ghost" href="#/live">Live cam + score</a>
         </div>
         <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem"></p>
       </div>
@@ -411,12 +424,13 @@
           <button type="button" class="btn" id="btn-cam">Enable camera</button>
           <button type="button" class="btn btn-live" id="btn-go-live">Go Live</button>
           <button type="button" class="btn btn-ghost" id="btn-end-live" hidden>End Live</button>
-          <a class="btn btn-ghost" href="#/overlay" target="_blank" rel="noopener" id="btn-overlay-tab">Overlay (new tab)</a>
+          <a class="btn btn-primary" href="#/live" id="btn-open-live-cam">Live cam + score</a>
+          <a class="btn btn-ghost" href="#/overlay" target="_blank" rel="noopener" id="btn-overlay-tab">OBS score only</a>
         </div>
         <p class="badge badge-live" id="on-air-pill" hidden style="margin-top:12px"></p>
         <p class="hint muted" id="go-live-note" style="margin-top:12px">
-          Go Live stays on this page with the camera on. Overlay opens in a <strong>new tab</strong> for OBS
-          (does not turn the camera off). Stream key ${s.youtubeStreamKey ? "saved" : "optional in Setup"}.
+          <strong>Go Live</strong> opens full-screen <strong>camera + scoreboard</strong> on this phone.
+          Use <strong>OBS score only</strong> for a transparent browser source (no camera — by design).
         </p>
       </div>
     `;
@@ -553,32 +567,25 @@
         });
       }
 
-      // Stay on Go Live — do NOT navigate to overlay (that was killing the camera)
+      // Start camera on this user gesture, then open composite Live cam page
+      // (must keep stream when routing — /live is a camera route)
       try {
         await startCamera();
       } catch (e) {
-        toast("Allow camera to go live, or use Overlay-only in a new tab");
+        toast("Allow camera access, then try again");
         console.warn(e);
-        // Still mark on-air for score overlay workflow without camera
+        return;
       }
 
       onAir = true;
-      updateOnAirUi();
-      await refreshOverlayPreview();
-
-      // Open overlay in a separate tab so this page keeps the camera
-      const overlayUrl = `${location.origin}${location.pathname}#/overlay`;
-      try {
-        window.open(overlayUrl, "sw-overlay", "noopener,noreferrer");
-      } catch {
-        /* popup blocked — user can use Overlay (new tab) link */
-      }
-
-      toast("On air — camera stays here; overlay opened for OBS");
+      sessionStorage.setItem("sw-on-air", "1");
+      toast("Opening live camera + score…");
+      location.hash = "#/live";
     });
 
     document.getElementById("btn-end-live")?.addEventListener("click", () => {
       onAir = false;
+      sessionStorage.removeItem("sw-on-air");
       stopCamera();
       updateOnAirUi();
       toast("Live ended — camera off");
@@ -599,8 +606,139 @@
     }, SWHub.POLL_MS);
   }
 
+  /**
+   * Full-screen phone broadcast: camera under score overlay.
+   * URL: #/live
+   */
+  async function viewLiveCam() {
+    setOverlayMode(true, { withCamera: true });
+    setNav("live");
+    onAir = true;
+    sessionStorage.setItem("sw-on-air", "1");
+
+    main().innerHTML = `
+      <div class="live-stage" id="live-stage">
+        <video id="cam" class="live-stage-video" playsinline muted autoplay webkit-playsinline></video>
+        <div class="live-stage-ph" id="cam-ph">
+          <strong>Starting camera…</strong>
+          <span class="muted" style="color:#86efac">Allow camera access if prompted</span>
+          <button type="button" class="btn btn-primary" id="btn-cam-retry">Enable camera</button>
+        </div>
+        <div class="live-stage-chrome">
+          <span class="live-pill" id="live-pill">Live</span>
+          <div class="chrome-actions">
+            <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip cam</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-end-live-stage">End</button>
+            <a class="btn btn-sm btn-ghost" href="#/go-live">Setup</a>
+          </div>
+        </div>
+        <div class="live-stage-score">
+          <div class="overlay-root" id="overlay-root"></div>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById("overlay-root");
+    const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
+    let facing = "environment";
+
+    async function startFacing(mode) {
+      facing = mode || facing;
+      stopCamera();
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: true,
+      });
+      bindCameraToVideo();
+      const ph = document.getElementById("cam-ph");
+      if (ph) ph.hidden = true;
+      const pill = document.getElementById("live-pill");
+      if (pill) pill.textContent = "Live · camera on";
+    }
+
+    async function tick() {
+      try {
+        const m = await resolveActiveMatch();
+        SWOverlay.mount(root, m, {
+          brand: m?.demo ? "DEMO · LPCC" : brand,
+        });
+      } catch (e) {
+        SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
+      }
+    }
+
+    document.getElementById("btn-cam-retry")?.addEventListener("click", async () => {
+      try {
+        await startFacing(facing);
+        toast("Camera on");
+      } catch (e) {
+        toast("Camera denied or unavailable");
+        console.warn(e);
+        const ph = document.getElementById("cam-ph");
+        if (ph) {
+          ph.hidden = false;
+          ph.querySelector("strong").textContent = "Camera unavailable";
+        }
+      }
+    });
+
+    document.getElementById("btn-flip-cam")?.addEventListener("click", async () => {
+      try {
+        await startFacing(facing === "environment" ? "user" : "environment");
+        toast(facing === "user" ? "Front camera" : "Rear camera");
+      } catch (e) {
+        toast("Could not flip camera");
+      }
+    });
+
+    document.getElementById("btn-end-live-stage")?.addEventListener("click", () => {
+      onAir = false;
+      sessionStorage.removeItem("sw-on-air");
+      stopCamera();
+      location.hash = "#/go-live";
+    });
+
+    // Prefer existing stream from Go Live gesture; else request camera here
+    try {
+      if (cameraIsLive()) {
+        bindCameraToVideo();
+        const ph = document.getElementById("cam-ph");
+        if (ph) ph.hidden = true;
+        const pill = document.getElementById("live-pill");
+        if (pill) pill.textContent = "Live · camera on";
+      } else {
+        await startFacing("environment");
+      }
+    } catch (e) {
+      console.warn(e);
+      const ph = document.getElementById("cam-ph");
+      if (ph) {
+        ph.hidden = false;
+        const strong = ph.querySelector("strong");
+        if (strong) strong.textContent = "Tap Enable camera";
+      }
+      toast("Tap Enable camera to show the feed");
+    }
+
+    await tick();
+    stopActivePoll();
+    stopPoll = SWHub.poll(async () => {
+      if (route().path !== "/live") return;
+      await tick();
+      bindCameraToVideo();
+    }, 10_000);
+  }
+
+  /**
+   * OBS / Streamlabs browser source — transparent score graphics only (no camera).
+   * URL: #/overlay
+   */
   async function viewOverlay() {
-    setOverlayMode(true);
+    setOverlayMode(true, { withCamera: false });
     setNav("overlay");
     main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
     const root = document.getElementById("overlay-root");
@@ -609,11 +747,8 @@
     async function tick() {
       try {
         const m = await resolveActiveMatch();
-        SWOverlay.mount(root, m, { brand });
-        // Auto-end hook placeholder: when completed, UI shows RESULT
-        if (m?.completed) {
-          root.dataset.completed = "1";
-        }
+        SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
+        if (m?.completed) root.dataset.completed = "1";
       } catch (e) {
         SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
       }
@@ -708,9 +843,10 @@
   async function render() {
     stopActivePoll();
     const { path } = route();
-    // Leaving Go Live ends the session and releases the camera
-    if (path !== "/go-live") {
+    // Keep camera when moving between Go Live control room and Live cam composite
+    if (!isCameraRoute(path)) {
       if (onAir) onAir = false;
+      sessionStorage.removeItem("sw-on-air");
       stopCamera();
     }
 
@@ -718,6 +854,7 @@
       if (path === "/" || path === "") await Promise.resolve(viewHome());
       else if (path === "/setup") viewSetup();
       else if (path === "/go-live") await viewGoLive();
+      else if (path === "/live") await viewLiveCam();
       else if (path === "/overlay") await viewOverlay();
       else if (path === "/board") await viewBoard();
       else viewNotFound();
