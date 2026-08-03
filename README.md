@@ -1,0 +1,59 @@
+# Scorers Window
+
+**Live cricket score overlay + YouTube Go Live** for club cricket.
+
+Phone / PWA → pick match → **Go Live** → camera + **our** Play-Cricket scoreboard → YouTube.  
+Viewers can also open the LIVE board (and later embed the same YouTube feed).
+
+## Product flow
+
+1. Open the PWA  
+2. Add YouTube live credentials (stream key or OAuth later)  
+3. Pick the game (home club default)  
+4. Tap **Go Live**  
+5. Stream **auto-ends** when the match is completed on Play-Cricket  
+
+## Local
+
+```bash
+cd scorers-window
+npm run dev
+# → http://localhost:5173
+```
+
+## Render
+
+1. Create a GitHub repo and push this folder (root = project root)  
+2. Render → **New → Blueprint** (uses `render.yaml`) **or** **Static Site**:
+   - **Publish directory:** `public`
+   - **Build command:** none (or `echo ok`)
+   - Rewrite `/*` → `/index.html` (already in `render.yaml`)
+3. Service name suggestion: **scorers-window**
+4. After deploy, open the site → **Setup** → confirm hub URL  
+
+Default hub: `https://cricket-local-v5-1.onrender.com`  
+Settings (stream key, video ID, selected match) are stored in the browser (`localStorage`).
+
+## Pages
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Home — setup checklist + open Go Live / Overlay |
+| `/#/setup` | YouTube stream key + hub URL (localStorage for now) |
+| `/#/go-live` | Pick live match, camera preview, Go Live (MVP: preview + overlay) |
+| `/#/overlay` | Full-window scoreboard for OBS browser source or stream kit |
+| `/#/board` | Rich board + optional YouTube embed when a stream id is set |
+
+## Roadmap
+
+- [x] Project shell + Render config  
+- [x] Live hub client + scoreboard overlay  
+- [x] Match picker from hub  
+- [ ] RTMP / YouTube Live publish from device  
+- [ ] Google OAuth “Connect YouTube”  
+- [ ] Auto-end stream on match complete  
+- [ ] Embed live YouTube on Cricket Local LIVE tab  
+
+## Licence
+
+Private — Cricket Local / Scorers Window.

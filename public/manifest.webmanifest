@@ -1,0 +1,18 @@
+{
+  "name": "Scorers Window",
+  "short_name": "Scorers",
+  "description": "Club cricket live stream with Play-Cricket score overlay",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06140d",
+  "theme_color": "#0a1f14",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

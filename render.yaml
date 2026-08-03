@@ -1,0 +1,21 @@
+# Scorers Window — new Render static site (or web service)
+# Dashboard: New → Blueprint → connect this repo, or Static Site from /public
+
+services:
+  - type: web
+    name: scorers-window
+    runtime: static
+    rootDir: .
+    buildCommand: "echo 'Scorers Window static — no build step'"
+    staticPublishPath: public
+    routes:
+      - type: rewrite
+        source: "/*"
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=60
+      - path: /overlay*
+        name: Cache-Control
+        value: no-store
