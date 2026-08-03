@@ -334,13 +334,17 @@
         </div>
         <div class="field">
           <label for="youtubeVideoId">YouTube video ID (optional, for Watch embed)</label>
-          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="from youtube.com/live/VIDEO_ID" />
-          <p class="hint">Not required for Go Live. Only if you share <span class="mono">#/watch?v=…</span> with video.</p>
+          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="e.g. SxAaC93E50E" />
+          <p class="hint">Only the ID (not a full URL). From the live link. Not required for Go Live.</p>
         </div>
         <div class="field">
-          <label for="streamRelayUrl">Stream relay URL (optional)</label>
-          <input id="streamRelayUrl" name="streamRelayUrl" type="url" value="${escAttr(s.streamRelayUrl || "")}" placeholder="Leave blank = this site" />
-          <p class="hint">Default: same host as this app (Docker deploy with ffmpeg). Only set if relay runs elsewhere.</p>
+          <label for="streamRelayUrl">Stream relay URL — leave blank</label>
+          <input id="streamRelayUrl" name="streamRelayUrl" type="url" value="${escAttr(isBadRelay(s.streamRelayUrl) ? "" : s.streamRelayUrl || "")}" placeholder="Leave blank if using scorers-window-live.onrender.com" />
+          <p class="hint" style="color:${isBadRelay(s.streamRelayUrl) ? "var(--warn)" : "var(--muted)"}">
+            <strong>Not</strong> a YouTube Studio link. Leave empty when the phone is on
+            <span class="mono">https://scorers-window-live.onrender.com</span>.
+            ${isBadRelay(s.streamRelayUrl) ? " (We cleared a YouTube URL that was saved here.)" : ""}
+          </p>
         </div>
         <div class="row-actions">
           <button type="submit" class="btn btn-primary">Save</button>
@@ -353,15 +357,29 @@
       <div class="card" id="hub-test-result" hidden></div>
     `;
 
+    // One-time cleanup if user pasted YouTube into relay field
+    if (isBadRelay(s.streamRelayUrl)) {
+      SWHub.saveSettings({ streamRelayUrl: "" });
+    }
+
     document.getElementById("setup-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      let relay = String(fd.get("streamRelayUrl") || "").trim();
+      if (isBadRelay(relay)) {
+        toast("Stream relay cannot be a YouTube link — leave it blank");
+        relay = "";
+      }
+      let videoId = String(fd.get("youtubeVideoId") || "").trim();
+      // Accept pasted full URLs and extract id
+      const m = videoId.match(/(?:v=|live\/|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
+      if (m) videoId = m[1];
       SWHub.saveSettings({
         hubUrl: String(fd.get("hubUrl") || "").trim() || SWHub.DEFAULT_HUB,
         clubLabel: String(fd.get("clubLabel") || "").trim(),
         youtubeStreamKey: String(fd.get("youtubeStreamKey") || "").trim(),
-        youtubeVideoId: String(fd.get("youtubeVideoId") || "").trim(),
-        streamRelayUrl: String(fd.get("streamRelayUrl") || "").trim(),
+        youtubeVideoId: videoId,
+        streamRelayUrl: relay,
       });
       toast(SWStream?.hasStreamKey?.() ? "Saved — stream key ready for Go Live" : "Saved");
       refreshHubStatus();
@@ -388,22 +406,43 @@
 
     document.getElementById("btn-test-relay")?.addEventListener("click", async () => {
       const input = document.getElementById("streamRelayUrl");
-      if (input?.value != null) SWHub.saveSettings({ streamRelayUrl: input.value.trim() });
+      let relay = (input?.value || "").trim();
+      if (isBadRelay(relay)) {
+        relay = "";
+        if (input) input.value = "";
+        toast("Cleared YouTube URL from relay field");
+      }
+      SWHub.saveSettings({ streamRelayUrl: relay });
       const box = document.getElementById("hub-test-result");
       box.hidden = false;
       box.innerHTML = `<p class="muted">Testing relay…</p>`;
       try {
         const st = await SWStream.probeRelay();
+        const ready = !!(st.ffmpeg || st.youtubeRelay);
         box.innerHTML = `
           <h2>YouTube relay</h2>
-          <p>ffmpeg: <strong>${st.ffmpeg || st.youtubeRelay ? "yes" : "no"}</strong></p>
-          <p>YouTube push: <strong>${st.youtubeRelay || st.ffmpeg ? "ready" : "not available"}</strong></p>
-          <p class="muted mono">${esc(JSON.stringify(st).slice(0, 280))}</p>
+          <p>ffmpeg: <strong>${ready ? "yes" : "no"}</strong></p>
+          <p>YouTube push: <strong>${ready ? "ready" : "not available"}</strong></p>
+          ${st.message ? `<p class="muted">${esc(st.message)}</p>` : ""}
+          ${st.hint ? `<p class="muted">${esc(st.hint)}</p>` : ""}
+          ${st.probed ? `<p class="mono muted" style="font-size:0.75rem">Probed: ${esc(st.probed)}</p>` : ""}
+          <p class="muted mono" style="font-size:0.75rem">${esc(JSON.stringify(st).slice(0, 320))}</p>
+          ${
+            !ready
+              ? `<p style="margin-top:10px"><a class="btn btn-primary" href="https://scorers-window-live.onrender.com/#/setup">Open Docker app (correct host)</a></p>`
+              : `<p class="muted" style="margin-top:10px">OK — use <strong>Go Live</strong> on this same host.</p>`
+          }
         `;
       } catch (err) {
         box.innerHTML = `<h2>Relay error</h2><p class="muted">${esc(err.message || err)}</p>`;
       }
     });
+  }
+
+  function isBadRelay(url) {
+    const u = String(url || "").toLowerCase();
+    if (!u) return false;
+    return u.includes("youtube.com") || u.includes("youtu.be") || u.includes("studio.youtube");
   }
 
   async function viewGoLive() {

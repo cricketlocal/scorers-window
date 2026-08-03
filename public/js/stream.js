@@ -206,19 +206,35 @@
     if (typeof onStatus === "function") onStatus({ state: publishState, ...partial });
   }
 
-  function wsUrl() {
+  /** YouTube Studio / watch links are NOT the relay — ignore them. */
+  function isInvalidRelayUrl(url) {
+    const u = String(url || "").toLowerCase();
+    if (!u) return false;
+    return (
+      u.includes("youtube.com") ||
+      u.includes("youtu.be") ||
+      u.includes("studio.youtube") ||
+      u.includes("googlevideo.com")
+    );
+  }
+
+  function effectiveRelayBase() {
     const s = global.SWHub?.loadSettings?.() || {};
     const custom = String(s.streamRelayUrl || "").trim();
-    if (custom) {
-      // allow https://host or wss://host or full wss://host/ws/stream
-      if (custom.startsWith("ws")) {
-        return custom.includes("/ws/") ? custom : custom.replace(/\/+$/, "") + "/ws/stream";
-      }
-      const u = custom.replace(/^http/, "ws").replace(/\/+$/, "");
-      return u + "/ws/stream";
+    if (custom && !isInvalidRelayUrl(custom)) {
+      return custom.replace(/\/+$/, "");
     }
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${location.host}/ws/stream`;
+    // Same origin as this page (must be the Docker app host)
+    return location.origin;
+  }
+
+  function wsUrl() {
+    const base = effectiveRelayBase();
+    if (base.startsWith("ws")) {
+      return base.includes("/ws/") ? base : base.replace(/\/+$/, "") + "/ws/stream";
+    }
+    const u = base.replace(/^http/, "ws").replace(/\/+$/, "");
+    return u + "/ws/stream";
   }
 
   function pickRecorderMime() {
@@ -235,14 +251,48 @@
   }
 
   async function probeRelay() {
+    const raw = String(global.SWHub?.loadSettings?.()?.streamRelayUrl || "").trim();
+    if (isInvalidRelayUrl(raw)) {
+      return {
+        ok: false,
+        youtubeRelay: false,
+        ffmpeg: false,
+        error: "INVALID_RELAY_URL",
+        message:
+          "Stream relay URL must be our Scorers Window app (e.g. https://scorers-window-live.onrender.com), not a YouTube Studio link. Leave the field blank if you opened the app on the Docker host.",
+        hint: "Clear Stream relay URL, Save, then Test again. Open https://scorers-window-live.onrender.com for the phone.",
+      };
+    }
     try {
-      const base = (global.SWHub?.loadSettings?.()?.streamRelayUrl || "").trim() || location.origin;
+      const base = effectiveRelayBase();
       const url = base.replace(/\/+$/, "") + "/api/stream/status";
       const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) return { ok: false, youtubeRelay: false };
-      return await res.json();
-    } catch {
-      return { ok: false, youtubeRelay: false };
+      const ct = res.headers.get("content-type") || "";
+      if (!res.ok) {
+        return { ok: false, youtubeRelay: false, ffmpeg: false, status: res.status, probed: url };
+      }
+      // Static site returns HTML for /api/* — not the Docker relay
+      if (!ct.includes("application/json")) {
+        return {
+          ok: false,
+          youtubeRelay: false,
+          ffmpeg: false,
+          error: "NOT_DOCKER",
+          message:
+            "This host is the static site (no ffmpeg). Open https://scorers-window-live.onrender.com and leave Stream relay blank.",
+          probed: url,
+        };
+      }
+      const json = await res.json();
+      return { ...json, probed: url };
+    } catch (e) {
+      return {
+        ok: false,
+        youtubeRelay: false,
+        ffmpeg: false,
+        error: "FETCH_FAIL",
+        message: e.message || String(e),
+      };
     }
   }
 
