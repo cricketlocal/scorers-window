@@ -1084,7 +1084,7 @@
   }
 
   /**
-   * Live page — one big button: opens our embedded player in a new tab.
+   * Live page — big button opens embedded player (same app tab, full screen).
    */
   async function viewWatch() {
     setOverlayMode(false);
@@ -1092,16 +1092,15 @@
     main().classList.add("main--wide");
     document.body.classList.add("watch-mode");
 
-    const playerUrl = playerPageUrl();
-
+    // Same-tab navigation — mobile often blocks target=_blank
     main().innerHTML = `
       <div class="watch-page watch-page--simple">
         <h1 class="watch-simple-title">Live</h1>
-        <p class="lead watch-lead">Lullington Live — opens the player in a new tab</p>
-        <a class="btn-watch-live" id="btn-watch-live" href="${escAttr(playerUrl)}" target="_blank" rel="noopener noreferrer">
+        <p class="lead watch-lead">Lullington Live stream (embedded player)</p>
+        <a class="btn-watch-live" id="btn-watch-live" href="#/player">
           Watch Live
         </a>
-        <p class="muted watch-simple-hint">New tab with the live stream embedded</p>
+        <p class="muted watch-simple-hint">Full-screen player · same feed as youtube.com/@LullingtonLive/live</p>
       </div>
     `;
 
@@ -1109,8 +1108,8 @@
   }
 
   /**
-   * Full-window embed of the same feed as youtube.com/@LullingtonLive/live
-   * Uses YouTube channel live_stream embed (not a random scraped video id).
+   * Full-window YouTube embed for @LullingtonLive live.
+   * Prefer concrete live video embed; fall back to channel live_stream.
    */
   async function viewPlayer() {
     setOverlayMode(false);
@@ -1118,34 +1117,39 @@
     document.body.classList.add("player-mode");
     main().classList.add("main--player");
 
-    // Official club channel — same as https://www.youtube.com/@LullingtonLive/live
     const CHANNEL_ID = "UCR4PqiyQh_U9_PWnI8wT9fA";
     const WATCH_PAGE = "https://www.youtube.com/@LullingtonLive/live";
-    const CHANNEL_EMBED = `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=0&playsinline=1`;
+    const CHANNEL_EMBED = `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=1&playsinline=1&rel=0`;
 
     main().innerHTML = `
       <div class="player-page">
         <div class="player-top">
           <span class="player-label">Lullington Live</span>
           <button type="button" class="btn btn-sm btn-ghost" id="btn-player-refresh">Refresh</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-player-alt">Try other embed</button>
           <a class="btn btn-sm btn-ghost" href="#/watch">Back</a>
         </div>
         <div class="player-frame-wrap" id="player-frame-wrap">
           <div class="player-loading">Loading live stream…</div>
         </div>
-        <p class="player-source muted" id="player-source">Source: @LullingtonLive/live</p>
+        <p class="player-source muted" id="player-source">Loading…</p>
       </div>
     `;
 
     const wrap = document.getElementById("player-frame-wrap");
     const sourceEl = document.getElementById("player-source");
+    let embeds = [];
+    let embedIndex = 0;
 
     function showEmbed(embedUrl, note) {
-      if (!wrap) return;
+      if (!wrap || !embedUrl) return;
+      // cache-bust so Refresh reloads the iframe
+      const sep = embedUrl.includes("?") ? "&" : "?";
+      const src = `${embedUrl}${sep}_=${Date.now()}`;
       wrap.innerHTML = `
         <iframe
           class="player-iframe"
-          src="${escAttr(embedUrl)}"
+          src="${escAttr(src)}"
           title="Lullington Live"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowfullscreen
@@ -1153,36 +1157,78 @@
         ></iframe>
       `;
       if (sourceEl) {
-        sourceEl.innerHTML = `Same feed as <a href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">${esc(WATCH_PAGE)}</a>${note ? " · " + esc(note) : ""}`;
+        sourceEl.innerHTML = `${note ? esc(note) + " · " : ""}<a href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">Open @LullingtonLive/live on YouTube</a>`;
       }
     }
 
     async function mountPlayer() {
       if (!wrap) return;
       wrap.innerHTML = `<div class="player-loading">Loading live stream…</div>`;
+      embeds = [];
+      embedIndex = 0;
 
-      // Always use channel live embed first — matches /@LullingtonLive/live
-      let embedUrl = CHANNEL_EMBED;
-      let note = "channel live embed";
+      let note = "channel live";
 
       try {
-        const resolved = await SWHub.resolveChannelLive?.("LullingtonLive");
-        if (resolved?.channelId) {
-          embedUrl = `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(resolved.channelId)}&autoplay=1&mute=0&playsinline=1`;
-          note = resolved.title ? resolved.title : "channel live";
+        const res = await fetch(
+          `${location.origin}/api/youtube/channel-live?handle=LullingtonLive&_=${Date.now()}`,
+          { cache: "no-store" }
+        );
+        const j = await res.json();
+        // Prefer specific live video embed (more reliable on phones)
+        if (j.videoId) {
+          embeds.push({
+            url: `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1&rel=0`,
+            note: j.title ? `Live: ${j.title}` : `Video ${j.videoId}`,
+          });
         }
-        // Only use a specific video embed if API says it is the live stream AND channel embed failed
-        // (we still prefer channel live_stream so the player tracks the live page)
+        if (j.videoEmbedUrl && (!j.videoId || !j.videoEmbedUrl.includes(j.videoId))) {
+          embeds.push({ url: j.videoEmbedUrl, note: "video embed" });
+        }
+        if (j.channelId || j.channelEmbedUrl) {
+          embeds.push({
+            url:
+              j.channelEmbedUrl ||
+              `https://www.youtube.com/embed/live_stream?channel=${j.channelId}&autoplay=1&mute=1&playsinline=1`,
+            note: "channel live embed",
+          });
+        }
+        if (j.embedUrl) {
+          embeds.push({ url: j.embedUrl, note: j.title || "resolved embed" });
+        }
+        if (j.title) note = j.title;
       } catch (e) {
-        console.warn("[player] resolve", e);
+        console.warn("[player] API", e);
       }
 
-      showEmbed(embedUrl, note);
+      // Always have channel fallback
+      embeds.push({ url: CHANNEL_EMBED, note: "channel fallback" });
+
+      // Dedupe by URL path
+      const seen = new Set();
+      embeds = embeds.filter((e) => {
+        const key = e.url.split("?")[0];
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      showEmbed(embeds[0].url, embeds[0].note || note);
     }
 
     document.getElementById("btn-player-refresh")?.addEventListener("click", () => {
       mountPlayer();
       toast("Refreshing player");
+    });
+    document.getElementById("btn-player-alt")?.addEventListener("click", () => {
+      if (!embeds.length) {
+        mountPlayer();
+        return;
+      }
+      embedIndex = (embedIndex + 1) % embeds.length;
+      const e = embeds[embedIndex];
+      showEmbed(e.url, e.note + ` (${embedIndex + 1}/${embeds.length})`);
+      toast("Switched embed");
     });
 
     await mountPlayer();

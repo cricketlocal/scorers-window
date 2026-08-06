@@ -116,35 +116,41 @@ app.get("/api/youtube/channel-live", async (req, res) => {
 
     // Live video id: prefer redirect URL, then isLiveNow / videoDetails near live
     let videoId = "";
-    const fromFinal = String(finalUrl).match(/(?:v=|\/live\/)([a-zA-Z0-9_-]{11})/);
+    const fromFinal = String(finalUrl).match(/(?:v=|\/live\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
     if (fromFinal && !String(finalUrl).includes(`@${handle}`)) {
       videoId = fromFinal[1];
     }
-    // Only trust videoId next to live flags
-    if (!videoId) {
-      const liveNear = html.match(
-        /"isLive(?:Now|Content)?"\s*:\s*true[^]{0,200}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/
-      );
-      if (liveNear) videoId = liveNear[1];
-    }
-    if (!videoId) {
-      const liveNear2 = html.match(
-        /"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"[^]{0,200}"isLive(?:Now|Content)?"\s*:\s*true/
-      );
-      if (liveNear2) videoId = liveNear2[1];
+    // Live-specific patterns (avoid random recommended videoIds)
+    const livePatterns = [
+      /"videoId":"([a-zA-Z0-9_-]{11})"[^]{0,400}"isLiveNow"\s*:\s*true/,
+      /"isLiveNow"\s*:\s*true[^]{0,400}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      /"videoId":"([a-zA-Z0-9_-]{11})"[^]{0,400}"isLiveContent"\s*:\s*true/,
+      /"isLiveContent"\s*:\s*true[^]{0,400}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      /"videoDetails":\{"videoId":"([a-zA-Z0-9_-]{11})"/,
+      /canonicalUrl":"https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/,
+      /"watchEndpoint":\{"videoId":"([a-zA-Z0-9_-]{11})"/,
+    ];
+    for (const re of livePatterns) {
+      if (videoId) break;
+      const m = html.match(re);
+      if (m) videoId = m[1];
     }
 
     let title = "";
     const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
     if (t) title = t[1];
+    if (!title) {
+      const t2 = html.match(/<title>([^<]+)<\/title>/i);
+      if (t2) title = t2[1].replace(/\s*-\s*YouTube\s*$/i, "").trim();
+    }
 
-    // Channel live_stream embed tracks the same feed as /@handle/live
-    // (more reliable than a scraped video id that may be a VOD/recommend)
-    const channelEmbed = channelId
-      ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=0&playsinline=1`
-      : null;
+    // Specific live video embed is more reliable than live_stream?channel=
+    // (channel embed often shows blank on mobile while /@handle/live works)
     const videoEmbed = videoId
-      ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&playsinline=1`
+      ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
+      : null;
+    const channelEmbed = channelId
+      ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
       : null;
 
     res.json({
@@ -153,12 +159,12 @@ app.get("/api/youtube/channel-live", async (req, res) => {
       videoId: videoId || null,
       channelId: channelId || null,
       title: title || null,
-      // Always send fans to the channel live page they know
       watchUrl: `https://www.youtube.com/@${handle}/live`,
-      // Prefer channel live embed so player matches that page
-      embedUrl: channelEmbed || videoEmbed,
+      // Prefer concrete live video embed when we have it
+      embedUrl: videoEmbed || channelEmbed,
       videoEmbedUrl: videoEmbed,
-      isLive: !!(channelId || videoId),
+      channelEmbedUrl: channelEmbed,
+      isLive: !!(videoId || channelId),
       finalUrl,
     });
   } catch (err) {
@@ -170,7 +176,10 @@ app.get("/api/youtube/channel-live", async (req, res) => {
       videoId: null,
       watchUrl: `https://www.youtube.com/@${handle}/live`,
       embedUrl: ch
-        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=0&playsinline=1`
+        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=1&playsinline=1`
+        : null,
+      channelEmbedUrl: ch
+        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=1&playsinline=1`
         : null,
       error: err.message || String(err),
     });
