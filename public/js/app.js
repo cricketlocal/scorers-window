@@ -939,16 +939,8 @@
         </ul>
         <p class="muted" style="margin:12px 0 0;font-size:0.9rem">
           Once it’s in the encode, <strong>live and watch-later</strong> on YouTube both show the overlay.
+          Fans use the normal YouTube live link.
         </p>
-      </div>
-
-      <div class="card">
-        <h2>5. Share with fans</h2>
-        <p class="muted" style="margin:0 0 12px">YouTube viewers use the normal live link. Optional companion scores page:</p>
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-copy-watch-obs">Copy Watch link</button>
-          <a class="btn btn-ghost" href="#/watch">Open Watch</a>
-        </div>
       </div>
     `;
 
@@ -966,9 +958,6 @@
       const el = document.getElementById("obs-match-label");
       if (el) el.textContent = SWHub.getDemoMatch()?.id || "demo";
       toast("Demo match selected for overlay");
-    });
-    document.getElementById("btn-copy-watch-obs")?.addEventListener("click", () => {
-      copyText(`${location.origin}${location.pathname}#/watch`, "Watch link copied");
     });
   }
 
