@@ -314,15 +314,16 @@
       if (j.embedUrl || j.videoId || j.channelId) {
         const videoId = j.videoId || null;
         const channelId = j.channelId || null;
+        // Prefer channel live_stream (matches youtube.com/@handle/live)
         const embedUrl =
           j.embedUrl ||
-          (videoId
-            ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1`
-            : channelId
-              ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
+          (channelId
+            ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=0&playsinline=1`
+            : videoId
+              ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&playsinline=1`
               : "");
         return {
-          type: videoId ? "video" : "channel",
+          type: "channel",
           id: videoId || undefined,
           handle: h,
           channelId: channelId || "",

@@ -62,7 +62,8 @@ app.get("/api/stream/status", (_req, res) => {
 });
 
 /**
- * Resolve @handle live → videoId / channelId for in-app embed.
+ * Resolve @handle live for in-app embed.
+ * Prefer channel live_stream embed (matches youtube.com/@handle/live).
  * GET /api/youtube/channel-live?handle=LullingtonLive
  */
 app.get("/api/youtube/channel-live", async (req, res) => {
@@ -71,18 +72,20 @@ app.get("/api/youtube/channel-live", async (req, res) => {
     .replace(/[^\w.-]/g, "");
   if (!handle) return res.status(400).json({ ok: false, error: "handle required" });
 
+  // Hardcoded club channel (reliable; matches @LullingtonLive)
+  const KNOWN = {
+    LullingtonLive: "UCR4PqiyQh_U9_PWnI8wT9fA",
+  };
+
   const ua =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
-  const urls = [
-    `https://www.youtube.com/@${handle}/live`,
-    `https://www.youtube.com/@${handle}`,
-  ];
+  const pageUrl = `https://www.youtube.com/@${handle}/live`;
 
   try {
     let html = "";
-    let finalUrl = "";
-    for (const u of urls) {
-      const r = await fetch(u, {
+    let finalUrl = pageUrl;
+    try {
+      const r = await fetch(pageUrl, {
         headers: {
           "User-Agent": ua,
           "Accept-Language": "en-US,en;q=0.9",
@@ -91,30 +94,12 @@ app.get("/api/youtube/channel-live", async (req, res) => {
         redirect: "follow",
       });
       html = await r.text();
-      finalUrl = r.url || u;
-      if (html && html.length > 5000 && !html.includes("consent.youtube.com")) break;
+      finalUrl = r.url || pageUrl;
+    } catch {
+      /* scrape optional */
     }
 
-    // Current live video id
-    let videoId = "";
-    const vidPatterns = [
-      /"videoId":"([a-zA-Z0-9_-]{11})"/,
-      /watch\?v=([a-zA-Z0-9_-]{11})/,
-      /\/live\/([a-zA-Z0-9_-]{11})/,
-      /canonicalWatchUrl":"https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
-    ];
-    for (const re of vidPatterns) {
-      const m = html.match(re);
-      if (m) {
-        videoId = m[1];
-        break;
-      }
-    }
-    // Prefer id from final redirect URL
-    const fromFinal = String(finalUrl).match(/(?:v=|live\/)([a-zA-Z0-9_-]{11})/);
-    if (fromFinal) videoId = fromFinal[1];
-
-    let channelId = "";
+    let channelId = KNOWN[handle] || "";
     const chPatterns = [
       /"channelId":"(UC[^"]+)"/,
       /"externalId":"(UC[^"]+)"/,
@@ -127,10 +112,40 @@ app.get("/api/youtube/channel-live", async (req, res) => {
         break;
       }
     }
+    if (!channelId) channelId = KNOWN[handle] || null;
+
+    // Live video id: prefer redirect URL, then isLiveNow / videoDetails near live
+    let videoId = "";
+    const fromFinal = String(finalUrl).match(/(?:v=|\/live\/)([a-zA-Z0-9_-]{11})/);
+    if (fromFinal && !String(finalUrl).includes(`@${handle}`)) {
+      videoId = fromFinal[1];
+    }
+    // Only trust videoId next to live flags
+    if (!videoId) {
+      const liveNear = html.match(
+        /"isLive(?:Now|Content)?"\s*:\s*true[^]{0,200}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/
+      );
+      if (liveNear) videoId = liveNear[1];
+    }
+    if (!videoId) {
+      const liveNear2 = html.match(
+        /"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"[^]{0,200}"isLive(?:Now|Content)?"\s*:\s*true/
+      );
+      if (liveNear2) videoId = liveNear2[1];
+    }
 
     let title = "";
     const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
     if (t) title = t[1];
+
+    // Channel live_stream embed tracks the same feed as /@handle/live
+    // (more reliable than a scraped video id that may be a VOD/recommend)
+    const channelEmbed = channelId
+      ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=0&playsinline=1`
+      : null;
+    const videoEmbed = videoId
+      ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&playsinline=1`
+      : null;
 
     res.json({
       ok: true,
@@ -138,23 +153,26 @@ app.get("/api/youtube/channel-live", async (req, res) => {
       videoId: videoId || null,
       channelId: channelId || null,
       title: title || null,
-      watchUrl: videoId
-        ? `https://www.youtube.com/live/${videoId}`
-        : `https://www.youtube.com/@${handle}/live`,
-      embedUrl: videoId
-        ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1`
-        : channelId
-          ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
-          : null,
-      isLive: !!(videoId || channelId),
+      // Always send fans to the channel live page they know
+      watchUrl: `https://www.youtube.com/@${handle}/live`,
+      // Prefer channel live embed so player matches that page
+      embedUrl: channelEmbed || videoEmbed,
+      videoEmbedUrl: videoEmbed,
+      isLive: !!(channelId || videoId),
+      finalUrl,
     });
   } catch (err) {
-    res.status(502).json({
-      ok: false,
+    const ch = KNOWN[handle] || null;
+    res.status(200).json({
+      ok: true,
       handle,
-      error: err.message || String(err),
+      channelId: ch,
+      videoId: null,
       watchUrl: `https://www.youtube.com/@${handle}/live`,
-      embedUrl: null,
+      embedUrl: ch
+        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=0&playsinline=1`
+        : null,
+      error: err.message || String(err),
     });
   }
 });

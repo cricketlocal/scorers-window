@@ -1109,13 +1109,19 @@
   }
 
   /**
-   * Full-window YouTube embed of @LullingtonLive live (not a redirect to youtube.com).
+   * Full-window embed of the same feed as youtube.com/@LullingtonLive/live
+   * Uses YouTube channel live_stream embed (not a random scraped video id).
    */
   async function viewPlayer() {
     setOverlayMode(false);
     setNav("watch");
     document.body.classList.add("player-mode");
     main().classList.add("main--player");
+
+    // Official club channel — same as https://www.youtube.com/@LullingtonLive/live
+    const CHANNEL_ID = "UCR4PqiyQh_U9_PWnI8wT9fA";
+    const WATCH_PAGE = "https://www.youtube.com/@LullingtonLive/live";
+    const CHANNEL_EMBED = `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=0&playsinline=1`;
 
     main().innerHTML = `
       <div class="player-page">
@@ -1127,44 +1133,15 @@
         <div class="player-frame-wrap" id="player-frame-wrap">
           <div class="player-loading">Loading live stream…</div>
         </div>
+        <p class="player-source muted" id="player-source">Source: @LullingtonLive/live</p>
       </div>
     `;
 
     const wrap = document.getElementById("player-frame-wrap");
+    const sourceEl = document.getElementById("player-source");
 
-    async function mountPlayer() {
+    function showEmbed(embedUrl, note) {
       if (!wrap) return;
-      wrap.innerHTML = `<div class="player-loading">Loading live stream…</div>`;
-
-      let embedUrl = "";
-      let errMsg = "";
-
-      // 1) Server resolve current live on @LullingtonLive
-      try {
-        const resolved = await SWHub.resolveChannelLive?.("LullingtonLive");
-        if (resolved?.embedUrl) {
-          embedUrl = resolved.embedUrl;
-        } else if (resolved?.channelId) {
-          embedUrl = `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(resolved.channelId)}&autoplay=1&mute=0&playsinline=1`;
-        }
-      } catch (e) {
-        errMsg = e.message || String(e);
-      }
-
-      // 2) Optional Setup video id
-      if (!embedUrl) {
-        const vid = String(SWHub.loadSettings().youtubeVideoId || "").trim();
-        if (/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
-          embedUrl = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=0&playsinline=1`;
-        }
-      }
-
-      // 3) Known channel id fallback (from prior resolve)
-      if (!embedUrl) {
-        embedUrl =
-          "https://www.youtube.com/embed/live_stream?channel=UCR4PqiyQh_U9_PWnI8wT9fA&autoplay=1&mute=0&playsinline=1";
-      }
-
       wrap.innerHTML = `
         <iframe
           class="player-iframe"
@@ -1175,7 +1152,32 @@
           referrerpolicy="strict-origin-when-cross-origin"
         ></iframe>
       `;
-      if (errMsg) console.warn("[player]", errMsg);
+      if (sourceEl) {
+        sourceEl.innerHTML = `Same feed as <a href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">${esc(WATCH_PAGE)}</a>${note ? " · " + esc(note) : ""}`;
+      }
+    }
+
+    async function mountPlayer() {
+      if (!wrap) return;
+      wrap.innerHTML = `<div class="player-loading">Loading live stream…</div>`;
+
+      // Always use channel live embed first — matches /@LullingtonLive/live
+      let embedUrl = CHANNEL_EMBED;
+      let note = "channel live embed";
+
+      try {
+        const resolved = await SWHub.resolveChannelLive?.("LullingtonLive");
+        if (resolved?.channelId) {
+          embedUrl = `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(resolved.channelId)}&autoplay=1&mute=0&playsinline=1`;
+          note = resolved.title ? resolved.title : "channel live";
+        }
+        // Only use a specific video embed if API says it is the live stream AND channel embed failed
+        // (we still prefer channel live_stream so the player tracks the live page)
+      } catch (e) {
+        console.warn("[player] resolve", e);
+      }
+
+      showEmbed(embedUrl, note);
     }
 
     document.getElementById("btn-player-refresh")?.addEventListener("click", () => {
@@ -1290,6 +1292,9 @@
     stopActivePoll();
     const { path } = route();
     document.body.classList.remove("watch-mode");
+    document.body.classList.remove("player-mode");
+    const mEl = main();
+    if (mEl) mEl.classList.remove("main--player");
     document.documentElement.classList.remove("obs-capture");
     // Keep camera when moving between Go Live control room and Live cam composite
     if (!isCameraRoute(path)) {
