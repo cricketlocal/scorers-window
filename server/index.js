@@ -116,36 +116,77 @@ app.get("/api/youtube/channel-live", async (req, res) => {
 
     // Live video id: prefer redirect URL, then isLiveNow / videoDetails near live
     let videoId = "";
-    const fromFinal = String(finalUrl).match(/(?:v=|\/live\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
-    if (fromFinal && !String(finalUrl).includes(`@${handle}`)) {
-      videoId = fromFinal[1];
-    }
-    // Live-specific patterns (avoid random recommended videoIds)
-    const livePatterns = [
-      /"videoId":"([a-zA-Z0-9_-]{11})"[^]{0,400}"isLiveNow"\s*:\s*true/,
-      /"isLiveNow"\s*:\s*true[^]{0,400}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
-      /"videoId":"([a-zA-Z0-9_-]{11})"[^]{0,400}"isLiveContent"\s*:\s*true/,
-      /"isLiveContent"\s*:\s*true[^]{0,400}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
-      /"videoDetails":\{"videoId":"([a-zA-Z0-9_-]{11})"/,
-      /canonicalUrl":"https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/,
-      /"watchEndpoint":\{"videoId":"([a-zA-Z0-9_-]{11})"/,
-    ];
-    for (const re of livePatterns) {
-      if (videoId) break;
-      const m = html.match(re);
-      if (m) videoId = m[1];
+    let isLive = false;
+    let title = "";
+
+    // Best source: ytInitialPlayerResponse.videoDetails (same as /@handle/live player)
+    const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{)/);
+    if (prMatch) {
+      try {
+        const start = prMatch.index + prMatch[0].length - 1;
+        let depth = 0;
+        let end = -1;
+        for (let i = start; i < html.length && i < start + 2_000_000; i++) {
+          const ch = html[i];
+          if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) {
+              end = i + 1;
+              break;
+            }
+          }
+        }
+        if (end > start) {
+          const pr = JSON.parse(html.slice(start, end));
+          const vd = pr.videoDetails || {};
+          if (vd.videoId) {
+            videoId = String(vd.videoId);
+            isLive = !!(vd.isLive || vd.isLiveContent || vd.isUpcoming);
+            title = vd.title || "";
+          }
+        }
+      } catch (e) {
+        console.warn("[channel-live] playerResponse parse", e.message);
+      }
     }
 
-    let title = "";
-    const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
-    if (t) title = t[1];
+    // Redirect URL (when /live redirects to watch?v=)
+    if (!videoId) {
+      const fromFinal = String(finalUrl).match(/(?:v=|\/live\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
+      if (fromFinal && !String(finalUrl).includes(`@${handle}`)) {
+        videoId = fromFinal[1];
+        isLive = true;
+      }
+    }
+
+    // Live-flag pairs only (avoid recommended VODs)
+    if (!videoId) {
+      const livePatterns = [
+        /"isLiveNow"\s*:\s*true[\s\S]{0,400}?"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+        /"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"[\s\S]{0,400}?"isLiveNow"\s*:\s*true/,
+        /"videoDetails"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      ];
+      for (const re of livePatterns) {
+        const m = html.match(re);
+        if (m) {
+          videoId = m[1];
+          isLive = true;
+          break;
+        }
+      }
+    }
+
+    if (!title) {
+      const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
+      if (t) title = t[1];
+    }
     if (!title) {
       const t2 = html.match(/<title>([^<]+)<\/title>/i);
       if (t2) title = t2[1].replace(/\s*-\s*YouTube\s*$/i, "").trim();
     }
 
-    // Specific live video embed is more reliable than live_stream?channel=
-    // (channel embed often shows blank on mobile while /@handle/live works)
+    // Concrete video embed matches the /live page; channel live_stream often shows wrong/blank
     const videoEmbed = videoId
       ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
       : null;
@@ -160,11 +201,11 @@ app.get("/api/youtube/channel-live", async (req, res) => {
       channelId: channelId || null,
       title: title || null,
       watchUrl: `https://www.youtube.com/@${handle}/live`,
-      // Prefer concrete live video embed when we have it
+      // Prefer the actual live video id (same as channel /live page)
       embedUrl: videoEmbed || channelEmbed,
       videoEmbedUrl: videoEmbed,
       channelEmbedUrl: channelEmbed,
-      isLive: !!(videoId || channelId),
+      isLive: !!(videoId && isLive) || !!videoId,
       finalUrl,
     });
   } catch (err) {

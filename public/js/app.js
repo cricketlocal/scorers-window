@@ -110,21 +110,22 @@
         { cache: "no-store" }
       );
       const j = await res.json();
-      // isLive: prefer real video id on air; channelId alone is not enough
-      const isLive = !!(j.videoId || (j.isLive && j.videoId));
-      // Also treat videoId present as live
-      const live = !!(j.videoId);
+      // Green only when we have the actual live video id (same stream as /@LullingtonLive/live)
+      const live = !!(j.videoId && (j.isLive !== false));
       ytLiveStatus = {
         isLive: live,
         videoId: j.videoId || null,
         channelId: j.channelId || CHANNEL_ID,
         title: j.title || "",
+        // Prefer concrete video embed — channel live_stream often shows wrong/blank feed
         embedUrl:
-          j.videoId
+          j.videoEmbedUrl ||
+          (j.videoId
             ? `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
-            : j.channelId || CHANNEL_ID
-              ? `https://www.youtube.com/embed/live_stream?channel=${j.channelId || CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`
-              : "",
+            : j.channelEmbedUrl ||
+              (j.channelId || CHANNEL_ID
+                ? `https://www.youtube.com/embed/live_stream?channel=${j.channelId || CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`
+                : "")),
         watchUrl: WATCH_PAGE,
       };
       return ytLiveStatus;
@@ -224,18 +225,29 @@
 
     function paintPlayer(st) {
       if (!player) return;
-      const embed =
-        st?.embedUrl ||
-        `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=1&playsinline=1&rel=0`;
-      const src = `${embed}${embed.includes("?") ? "&" : "?"}_=${Date.now()}`;
+      // Only embed when we know the live video id (matches youtube.com/@LullingtonLive/live)
+      if (st?.videoId && st?.embedUrl) {
+        const src = `${st.embedUrl}${st.embedUrl.includes("?") ? "&" : "?"}_=${Date.now()}`;
+        player.innerHTML = `
+          <iframe
+            src="${escAttr(src)}"
+            title="Lullington Live"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+            referrerpolicy="strict-origin-when-cross-origin"
+          ></iframe>
+        `;
+        return;
+      }
+      // Offline / unresolved: no wrong channel embed — show status + link
       player.innerHTML = `
-        <iframe
-          src="${escAttr(src)}"
-          title="Lullington Live"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowfullscreen
-          referrerpolicy="strict-origin-when-cross-origin"
-        ></iframe>
+        <div class="watch-video-placeholder card yt-fallback" style="min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <p style="margin:0 0 8px;font-weight:700">${st?.isLive ? "Loading live video…" : "No live stream detected"}</p>
+          <p class="muted" style="margin:0 0 12px;font-size:0.9rem;text-align:center">
+            Open the same feed YouTube shows for the club channel.
+          </p>
+          <a class="btn btn-live" href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">Open @LullingtonLive/live ↗</a>
+        </div>
       `;
     }
 
