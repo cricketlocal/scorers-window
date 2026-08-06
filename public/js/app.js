@@ -270,21 +270,15 @@
       </div>
 
       <div class="card">
-        <h2>Fans</h2>
-        <p class="muted" style="margin:0 0 12px">
-          Share the YouTube live link (video + burned-in scores if streaming).
-          Our Watch page is scores only (optional embed).
+        <h2>Fans — live feed</h2>
+        <p class="muted" style="margin:0 0 8px">
+          In-app live video uses the club channel:
         </p>
-        ${
-          youtubeWatchUrl()
-            ? `<p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all">${esc(youtubeWatchUrl())}</p>`
-            : `<p class="muted" style="margin:0 0 12px;font-size:0.85rem">Set <strong>YouTube video ID</strong> in Setup to enable the button (from Studio share / live URL).</p>`
-        }
+        <p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all">${esc(youtubeWatchUrl())}</p>
         <div class="row-actions">
-          <button type="button" class="btn btn-live" id="btn-watch-youtube">Watch on YouTube</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy YouTube link</button>
-          <a class="btn btn-ghost btn-sm" href="#/watch">Scores page</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-watch">Copy scores link</button>
+          <a class="btn btn-live" href="#/watch">Open Live feed</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-watch-youtube">Watch on YouTube</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy live link</button>
         </div>
       </div>
 
@@ -354,9 +348,14 @@
           <p class="hint">Default Cricket Local hub — leave as-is unless you know you need to change it.</p>
         </div>
         <div class="field">
-          <label for="youtubeVideoId">YouTube video ID (optional, for Watch embed)</label>
-          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="e.g. SxAaC93E50E" />
-          <p class="hint">Only the ID (not a full URL). From the live link. Not required for Go Live.</p>
+          <label for="youtubeLiveFeedUrl">Live video feed (channel or video)</label>
+          <input id="youtubeLiveFeedUrl" name="youtubeLiveFeedUrl" type="url" value="${escAttr(s.youtubeLiveFeedUrl || SWHub.DEFAULT_LIVE_FEED)}" placeholder="https://www.youtube.com/@LullingtonLive/live" />
+          <p class="hint">Default: club channel live — <span class="mono">@LullingtonLive/live</span>. This is what Watch shows.</p>
+        </div>
+        <div class="field">
+          <label for="youtubeVideoId">Specific video ID (optional override)</label>
+          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="leave blank to use channel live" />
+          <p class="hint">Only if you want one fixed stream (e.g. <span class="mono">Ey5s9LF958M</span>). Paste full link OK — we extract the ID.</p>
         </div>
         <div class="field">
           <label for="streamRelayUrl">Stream relay URL — leave blank</label>
@@ -395,9 +394,10 @@
         relay = "";
       }
       let videoId = String(fd.get("youtubeVideoId") || "").trim();
-      // Accept pasted full URLs and extract id
-      const m = videoId.match(/(?:v=|live\/|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
-      if (m) videoId = m[1];
+      const liveFeed = String(fd.get("youtubeLiveFeedUrl") || "").trim() || SWHub.DEFAULT_LIVE_FEED;
+      const parsedVid = SWHub.parseYouTubeInput?.(videoId);
+      if (parsedVid?.type === "video") videoId = parsedVid.id;
+      else if (parsedVid?.type === "channel") videoId = "";
       let streamKey = String(fd.get("youtubeStreamKey") || "").trim();
       if (SWHub.looksLikeUrlNotStreamKey?.(streamKey)) {
         toast("That was a YouTube web link — paste the Stream KEY only (with dashes)");
@@ -406,14 +406,17 @@
         toast("Stream key looks invalid — copy again from Studio → Stream");
         streamKey = "";
       }
+      const parsedFeed = SWHub.parseYouTubeInput?.(liveFeed);
       SWHub.saveSettings({
         hubUrl: String(fd.get("hubUrl") || "").trim() || SWHub.DEFAULT_HUB,
         clubLabel: String(fd.get("clubLabel") || "").trim(),
         youtubeStreamKey: streamKey,
         youtubeVideoId: videoId,
+        youtubeLiveFeedUrl: parsedFeed?.watchUrl || liveFeed,
+        youtubeChannelHandle: parsedFeed?.handle || SWHub.DEFAULT_CHANNEL_HANDLE,
         streamRelayUrl: relay,
       });
-      toast(SWStream?.hasStreamKey?.() ? "Saved — stream key ready for Go Live" : "Saved");
+      toast("Saved — live feed set for Watch");
       refreshHubStatus();
       viewSetup();
     });
@@ -1092,10 +1095,8 @@
   }
 
   /**
-   * Viewer page — no setup required.
-   * Share: https://scorers-window.onrender.com/#/watch
-   * Optional YouTube in the link: #/watch?v=VIDEO_ID
-   * Shows hub live match, else weekend demo. Auto-refreshes.
+   * Viewer page — live video feed (@LullingtonLive) + scoreboard.
+   * Share: …/#/watch
    */
   async function viewWatch() {
     setOverlayMode(false);
@@ -1105,65 +1106,80 @@
 
     const { params } = route();
     const s = SWHub.loadSettings();
-    // Prefer video ID from shared URL so fans need zero localStorage setup
     const ytFromUrl = (params.get("v") || params.get("yt") || params.get("video") || "").trim();
-    const yt = ytFromUrl || (s.youtubeVideoId || "").trim();
-
-    // Ensure something is selected for scores without user action
-    if (!s.selectedMatchId) {
-      selectDemoMatch();
+    if (ytFromUrl) {
+      const p = SWHub.parseYouTubeInput?.(ytFromUrl);
+      if (p?.type === "video") SWHub.saveSettings({ youtubeVideoId: p.id });
     }
+
+    if (!s.selectedMatchId) selectDemoMatch();
+
+    const feed = SWHub.getLiveFeed?.() || {
+      watchUrl: "https://www.youtube.com/@LullingtonLive/live",
+      embedUrl: "",
+    };
 
     main().innerHTML = `
       <div class="watch-page">
         <header class="watch-head">
-          <h1>Live score</h1>
-          <p class="lead watch-lead">Scores update automatically. No login or setup.</p>
+          <h1>Live feed</h1>
+          <p class="lead watch-lead">Lullington Live video + match scores. No login required.</p>
           <div class="row-actions" style="margin-bottom:14px">
-            <button type="button" class="btn btn-live" id="btn-watch-youtube">Watch on YouTube</button>
-            ${
-              youtubeWatchUrl(yt)
-                ? `<button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy YouTube link</button>`
-                : `<a class="btn btn-ghost btn-sm" href="#/setup">Set video ID</a>`
-            }
+            <a class="btn btn-live" id="btn-watch-youtube" href="${escAttr(feed.watchUrl)}" target="_blank" rel="noopener">Open on YouTube ↗</a>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy live link</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-feed">Refresh video</button>
           </div>
         </header>
         <div class="board-shell">
-          ${
-            yt
-              ? `<div class="yt-embed">
-                  <iframe
-                    src="https://www.youtube.com/embed/${escAttr(yt)}?autoplay=1&mute=1"
-                    title="YouTube live"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowfullscreen
-                    referrerpolicy="strict-origin-when-cross-origin"
-                  ></iframe>
-                </div>`
-              : `<div class="watch-video-placeholder card">
-                  <p style="margin:0 0 6px;font-weight:700">Scoreboard only</p>
-                  <p class="muted" style="margin:0 0 12px;font-size:0.9rem">
-                    Tap <strong>Watch on YouTube</strong> for the full video (after video ID is set in Setup),
-                    or open the club’s YouTube live link.
-                  </p>
-                  <button type="button" class="btn btn-live" id="btn-watch-youtube-2">Watch on YouTube</button>
-                </div>`
-          }
+          <div id="yt-feed-host">${youtubeEmbedHtml("", feed.watchUrl)}</div>
           <div class="board-score watch-score" id="board-score"></div>
-          <p class="watch-footnote muted">Powered by Scorers Window · Cricket Local hub</p>
+          <p class="watch-footnote muted">
+            Feed: <span class="mono">${esc(feed.watchUrl)}</span>
+            · Powered by Scorers Window
+          </p>
         </div>
       </div>
     `;
 
-    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch(yt));
-    document.getElementById("btn-watch-youtube-2")?.addEventListener("click", () => openYouTubeWatch(yt));
-    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
-      const url = youtubeWatchUrl(yt);
-      if (!url) {
-        toast("Add YouTube video ID in Setup first");
-        return;
+    const host = document.getElementById("yt-feed-host");
+
+    async function loadVideo() {
+      if (!host) return;
+      host.innerHTML = `<div class="card"><p class="muted" style="margin:0">Loading Lullington Live…</p></div>`;
+      let embed = "";
+      let watch = feed.watchUrl;
+
+      // Specific video id wins
+      const vid = (SWHub.loadSettings().youtubeVideoId || ytFromUrl || "").trim();
+      if (vid) {
+        const p = SWHub.parseYouTubeInput?.(vid) || SWHub.parseYouTubeInput?.(ytFromUrl);
+        if (p?.embedUrl) {
+          embed = p.embedUrl;
+          watch = p.watchUrl;
+        }
       }
-      copyText(url, "YouTube link copied");
+
+      // Resolve @channel/live → current stream or channel embed
+      if (!embed) {
+        const handle = SWHub.loadSettings().youtubeChannelHandle || "LullingtonLive";
+        const resolved = await SWHub.resolveChannelLive?.(handle);
+        if (resolved?.embedUrl) {
+          embed = resolved.embedUrl;
+          watch = resolved.watchUrl || watch;
+        }
+      }
+
+      host.innerHTML = youtubeEmbedHtml(embed, watch);
+      const openBtn = document.getElementById("btn-watch-youtube");
+      if (openBtn && watch) openBtn.setAttribute("href", watch);
+    }
+
+    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
+      copyText(youtubeWatchUrl(), "Live link copied");
+    });
+    document.getElementById("btn-refresh-feed")?.addEventListener("click", () => {
+      loadVideo();
+      toast("Refreshing live feed");
     });
 
     const box = document.getElementById("board-score");
@@ -1171,7 +1187,6 @@
     async function tick() {
       try {
         const m = await resolveActiveMatch();
-        // If still nothing, force demo for viewers
         const match = m || SWHub.getDemoMatch();
         SWOverlay.mount(box, match, {
           brand: match?.demo ? "DEMO · LPCC" : s.clubLabel || "Live",
@@ -1183,6 +1198,7 @@
       }
     }
 
+    await loadVideo();
     await tick();
     stopActivePoll();
     stopPoll = SWHub.poll(async () => {
@@ -1233,24 +1249,44 @@
     return `${origin}/#/overlay?obs=1`;
   }
 
-  /** Public YouTube watch/live URL from saved or query video id */
+  /** Public YouTube watch/live URL — channel live or specific video */
   function youtubeWatchUrl(videoId) {
-    const id = String(videoId || SWHub.loadSettings().youtubeVideoId || "")
-      .trim()
-      .replace(/^.*(?:v=|live\/|youtu\.be\/)/, "")
-      .replace(/[^a-zA-Z0-9_-].*$/, "");
-    if (!id) return "";
-    return `https://www.youtube.com/live/${id}`;
+    if (videoId) {
+      const p = SWHub.parseYouTubeInput?.(videoId);
+      if (p?.watchUrl) return p.watchUrl;
+    }
+    const feed = SWHub.getLiveFeed?.();
+    if (feed?.watchUrl) return feed.watchUrl;
+    const s = SWHub.loadSettings();
+    if (s.youtubeVideoId) {
+      const p = SWHub.parseYouTubeInput?.(s.youtubeVideoId);
+      if (p?.watchUrl) return p.watchUrl;
+    }
+    return s.youtubeLiveFeedUrl || SWHub.DEFAULT_LIVE_FEED || "https://www.youtube.com/@LullingtonLive/live";
   }
 
   function openYouTubeWatch(videoId) {
     const url = youtubeWatchUrl(videoId);
-    if (!url) {
-      toast("Add YouTube video ID in Setup first (from Studio share link)");
-      location.hash = "#/setup";
-      return;
-    }
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function youtubeEmbedHtml(embedUrl, watchUrl) {
+    if (embedUrl) {
+      return `<div class="yt-embed">
+        <iframe
+          src="${escAttr(embedUrl)}"
+          title="Lullington Live"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      </div>`;
+    }
+    return `<div class="watch-video-placeholder card yt-fallback">
+      <p style="margin:0 0 8px;font-weight:700">Lullington Live</p>
+      <p class="muted" style="margin:0 0 12px;font-size:0.9rem">Opening the club live feed…</p>
+      <a class="btn btn-live" href="${escAttr(watchUrl || "https://www.youtube.com/@LullingtonLive/live")}" target="_blank" rel="noopener">Watch on YouTube ↗</a>
+    </div>`;
   }
 
   async function copyText(text, okMsg) {

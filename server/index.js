@@ -61,6 +61,104 @@ app.get("/api/stream/status", (_req, res) => {
   });
 });
 
+/**
+ * Resolve @handle live → videoId / channelId for in-app embed.
+ * GET /api/youtube/channel-live?handle=LullingtonLive
+ */
+app.get("/api/youtube/channel-live", async (req, res) => {
+  const handle = String(req.query.handle || "LullingtonLive")
+    .replace(/^@/, "")
+    .replace(/[^\w.-]/g, "");
+  if (!handle) return res.status(400).json({ ok: false, error: "handle required" });
+
+  const ua =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+  const urls = [
+    `https://www.youtube.com/@${handle}/live`,
+    `https://www.youtube.com/@${handle}`,
+  ];
+
+  try {
+    let html = "";
+    let finalUrl = "";
+    for (const u of urls) {
+      const r = await fetch(u, {
+        headers: {
+          "User-Agent": ua,
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept: "text/html",
+        },
+        redirect: "follow",
+      });
+      html = await r.text();
+      finalUrl = r.url || u;
+      if (html && html.length > 5000 && !html.includes("consent.youtube.com")) break;
+    }
+
+    // Current live video id
+    let videoId = "";
+    const vidPatterns = [
+      /"videoId":"([a-zA-Z0-9_-]{11})"/,
+      /watch\?v=([a-zA-Z0-9_-]{11})/,
+      /\/live\/([a-zA-Z0-9_-]{11})/,
+      /canonicalWatchUrl":"https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+    ];
+    for (const re of vidPatterns) {
+      const m = html.match(re);
+      if (m) {
+        videoId = m[1];
+        break;
+      }
+    }
+    // Prefer id from final redirect URL
+    const fromFinal = String(finalUrl).match(/(?:v=|live\/)([a-zA-Z0-9_-]{11})/);
+    if (fromFinal) videoId = fromFinal[1];
+
+    let channelId = "";
+    const chPatterns = [
+      /"channelId":"(UC[^"]+)"/,
+      /"externalId":"(UC[^"]+)"/,
+      /itemprop="channelId" content="(UC[^"]+)"/,
+    ];
+    for (const re of chPatterns) {
+      const m = html.match(re);
+      if (m) {
+        channelId = m[1];
+        break;
+      }
+    }
+
+    let title = "";
+    const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
+    if (t) title = t[1];
+
+    res.json({
+      ok: true,
+      handle,
+      videoId: videoId || null,
+      channelId: channelId || null,
+      title: title || null,
+      watchUrl: videoId
+        ? `https://www.youtube.com/live/${videoId}`
+        : `https://www.youtube.com/@${handle}/live`,
+      embedUrl: videoId
+        ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1`
+        : channelId
+          ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
+          : null,
+      isLive: !!(videoId || channelId),
+    });
+  } catch (err) {
+    res.status(502).json({
+      ok: false,
+      handle,
+      error: err.message || String(err),
+      watchUrl: `https://www.youtube.com/@${handle}/live`,
+      embedUrl: null,
+    });
+  }
+});
+
 app.use(
   express.static(PUBLIC, {
     maxAge: process.env.NODE_ENV === "production" ? "60s" : 0,

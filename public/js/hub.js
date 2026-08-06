@@ -6,12 +6,74 @@
   const STORAGE_KEY = "sw-settings-v1";
   const DEFAULT_HUB = "https://cricket-local-v5-1.onrender.com";
   const POLL_MS = 20_000;
+  /** Club channel live page — always-on feed for Watch */
+  const DEFAULT_LIVE_FEED = "https://www.youtube.com/@LullingtonLive/live";
+  const DEFAULT_CHANNEL_HANDLE = "LullingtonLive";
+
+  /**
+   * Parse video ID, channel handle, or full YouTube URL.
+   * @returns {{ type: 'video'|'channel', id?: string, handle?: string, watchUrl: string, embedUrl: string }|null}
+   */
+  function parseYouTubeInput(input) {
+    const s = String(input || "").trim();
+    if (!s) return null;
+
+    // Channel live / handle: youtube.com/@Name or @Name/live
+    const handleM = s.match(/(?:youtube\.com\/)?@([\w.-]+)(?:\/live)?\/?(?:\?|$)/i) || s.match(/^@([\w.-]+)$/);
+    if (handleM && !s.match(/[?&]v=/) && !s.match(/youtu\.be\//)) {
+      const handle = handleM[1];
+      return {
+        type: "channel",
+        handle,
+        watchUrl: `https://www.youtube.com/@${handle}/live`,
+        embedUrl: "", // filled after resolve, or use video id if set
+      };
+    }
+
+    // Full URLs → 11-char video id
+    const vidM = s.match(
+      /(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|live\/|embed\/|shorts\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    );
+    if (vidM) {
+      const id = vidM[1];
+      return {
+        type: "video",
+        id,
+        watchUrl: `https://www.youtube.com/live/${id}`,
+        embedUrl: `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`,
+      };
+    }
+
+    // Bare 11-char id
+    if (/^[a-zA-Z0-9_-]{11}$/.test(s)) {
+      return {
+        type: "video",
+        id: s,
+        watchUrl: `https://www.youtube.com/live/${s}`,
+        embedUrl: `https://www.youtube.com/embed/${s}?autoplay=1&mute=1&playsinline=1`,
+      };
+    }
+
+    return null;
+  }
 
   function loadSettings() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaults();
-      return { ...defaults(), ...JSON.parse(raw) };
+      let s = raw ? { ...defaults(), ...JSON.parse(raw) } : defaults();
+      // Normalize video id if user pasted a full URL
+      if (s.youtubeVideoId) {
+        const p = parseYouTubeInput(s.youtubeVideoId);
+        if (p?.type === "video" && p.id) s.youtubeVideoId = p.id;
+        else if (p?.type === "channel" && p.handle) {
+          s.youtubeChannelHandle = p.handle;
+          s.youtubeLiveFeedUrl = p.watchUrl;
+          s.youtubeVideoId = "";
+        }
+      }
+      if (!s.youtubeLiveFeedUrl) s.youtubeLiveFeedUrl = DEFAULT_LIVE_FEED;
+      if (!s.youtubeChannelHandle) s.youtubeChannelHandle = DEFAULT_CHANNEL_HANDLE;
+      return s;
     } catch {
       return defaults();
     }
@@ -22,6 +84,8 @@
       hubUrl: DEFAULT_HUB,
       youtubeStreamKey: "",
       youtubeVideoId: "",
+      youtubeLiveFeedUrl: DEFAULT_LIVE_FEED,
+      youtubeChannelHandle: DEFAULT_CHANNEL_HANDLE,
       /** Optional override for relay host (default: same origin) */
       streamRelayUrl: "",
       clubLabel: "Lullington Park CC",
@@ -37,6 +101,26 @@
     // Never store a YouTube page URL as a stream key
     if (next.youtubeStreamKey && looksLikeUrlNotStreamKey(next.youtubeStreamKey)) {
       next.youtubeStreamKey = "";
+    }
+    // Normalize video / channel fields
+    if (next.youtubeVideoId) {
+      const p = parseYouTubeInput(next.youtubeVideoId);
+      if (p?.type === "video" && p.id) next.youtubeVideoId = p.id;
+      else if (p?.type === "channel") {
+        next.youtubeChannelHandle = p.handle;
+        next.youtubeLiveFeedUrl = p.watchUrl;
+        next.youtubeVideoId = "";
+      }
+    }
+    if (next.youtubeLiveFeedUrl) {
+      const p = parseYouTubeInput(next.youtubeLiveFeedUrl);
+      if (p?.type === "channel") {
+        next.youtubeChannelHandle = p.handle;
+        next.youtubeLiveFeedUrl = p.watchUrl;
+      } else if (p?.type === "video") {
+        next.youtubeVideoId = p.id;
+        next.youtubeLiveFeedUrl = p.watchUrl;
+      }
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     return next;
@@ -188,12 +272,67 @@
     };
   }
 
+  /** Resolve embeddable player for current settings */
+  function getLiveFeed() {
+    const s = loadSettings();
+    if (s.youtubeVideoId) {
+      const p = parseYouTubeInput(s.youtubeVideoId);
+      if (p?.type === "video") return p;
+    }
+    const handle = s.youtubeChannelHandle || DEFAULT_CHANNEL_HANDLE;
+    return {
+      type: "channel",
+      handle,
+      watchUrl: s.youtubeLiveFeedUrl || `https://www.youtube.com/@${handle}/live`,
+      embedUrl: "", // filled by resolveChannelLive()
+    };
+  }
+
+  async function resolveChannelLive(handle) {
+    const h = String(handle || DEFAULT_CHANNEL_HANDLE).replace(/^@/, "");
+    try {
+      const base = typeof location !== "undefined" ? location.origin : "";
+      const res = await fetch(`${base}/api/youtube/channel-live?handle=${encodeURIComponent(h)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (j.videoId) {
+        return {
+          type: "video",
+          id: j.videoId,
+          watchUrl: j.watchUrl || `https://www.youtube.com/live/${j.videoId}`,
+          embedUrl: `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1`,
+          title: j.title || "",
+          channelId: j.channelId || "",
+        };
+      }
+      if (j.channelId) {
+        return {
+          type: "channel",
+          handle: h,
+          channelId: j.channelId,
+          watchUrl: `https://www.youtube.com/@${h}/live`,
+          embedUrl: `https://www.youtube.com/embed/live_stream?channel=${j.channelId}&autoplay=1&mute=1&playsinline=1`,
+        };
+      }
+    } catch {
+      /* */
+    }
+    return null;
+  }
+
   global.SWHub = {
     DEFAULT_HUB,
+    DEFAULT_LIVE_FEED,
+    DEFAULT_CHANNEL_HANDLE,
     STORAGE_KEY,
     POLL_MS,
     loadSettings,
     saveSettings,
+    parseYouTubeInput,
+    getLiveFeed,
+    resolveChannelLive,
     looksLikeUrlNotStreamKey,
     isValidStreamKeyFormat,
     hubBase,
