@@ -272,19 +272,33 @@
     };
   }
 
-  /** Resolve embeddable player for current settings */
+  /**
+   * Primary live feed = club channel live page.
+   * Specific video ID is only an optional override (Setup).
+   */
   function getLiveFeed() {
     const s = loadSettings();
-    if (s.youtubeVideoId) {
-      const p = parseYouTubeInput(s.youtubeVideoId);
-      if (p?.type === "video") return p;
-    }
     const handle = s.youtubeChannelHandle || DEFAULT_CHANNEL_HANDLE;
+    const watchUrl =
+      s.youtubeLiveFeedUrl || DEFAULT_LIVE_FEED || `https://www.youtube.com/@${handle}/live`;
+    // Optional fixed video override (only if valid 11-char id, not a URL leftover)
+    if (s.youtubeVideoId && /^[a-zA-Z0-9_-]{11}$/.test(String(s.youtubeVideoId).trim())) {
+      const id = String(s.youtubeVideoId).trim();
+      return {
+        type: "video",
+        id,
+        handle,
+        watchUrl: `https://www.youtube.com/live/${id}`,
+        embedUrl: `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`,
+        useChannelLive: false,
+      };
+    }
     return {
       type: "channel",
       handle,
-      watchUrl: s.youtubeLiveFeedUrl || `https://www.youtube.com/@${handle}/live`,
-      embedUrl: "", // filled by resolveChannelLive()
+      watchUrl,
+      embedUrl: "",
+      useChannelLive: true,
     };
   }
 
@@ -297,27 +311,29 @@
       });
       if (!res.ok) return null;
       const j = await res.json();
-      if (j.videoId) {
+      if (j.embedUrl || j.videoId || j.channelId) {
+        const videoId = j.videoId || null;
+        const channelId = j.channelId || null;
+        const embedUrl =
+          j.embedUrl ||
+          (videoId
+            ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1`
+            : channelId
+              ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
+              : "");
         return {
-          type: "video",
-          id: j.videoId,
-          watchUrl: j.watchUrl || `https://www.youtube.com/live/${j.videoId}`,
-          embedUrl: `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1`,
-          title: j.title || "",
-          channelId: j.channelId || "",
-        };
-      }
-      if (j.channelId) {
-        return {
-          type: "channel",
+          type: videoId ? "video" : "channel",
+          id: videoId || undefined,
           handle: h,
-          channelId: j.channelId,
-          watchUrl: `https://www.youtube.com/@${h}/live`,
-          embedUrl: `https://www.youtube.com/embed/live_stream?channel=${j.channelId}&autoplay=1&mute=1&playsinline=1`,
+          channelId: channelId || "",
+          watchUrl: j.watchUrl || `https://www.youtube.com/@${h}/live`,
+          embedUrl,
+          title: j.title || "",
+          isLive: !!j.isLive,
         };
       }
-    } catch {
-      /* */
+    } catch (e) {
+      console.warn("[SWHub] resolveChannelLive", e);
     }
     return null;
   }

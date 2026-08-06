@@ -1215,6 +1215,10 @@ html.obs-capture .main.main--overlay {
   gap: 14px;
 }
 
+.yt-feed-host {
+  margin-bottom: 4px;
+}
+
 .yt-embed {
   position: relative;
   width: 100%;
@@ -1223,6 +1227,7 @@ html.obs-capture .main.main--overlay {
   overflow: hidden;
   border: 1px solid var(--border);
   background: #000;
+  min-height: 220px;
 }
 
 .yt-embed iframe {
@@ -1231,6 +1236,11 @@ html.obs-capture .main.main--overlay {
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+.yt-fallback {
+  text-align: center;
+  padding: 24px 18px;
 }
 
 .board-score {
