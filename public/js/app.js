@@ -1078,9 +1078,13 @@
     stopPoll = SWHub.poll(tick, 10_000);
   }
 
+  /** Full-page embedded player (opened in a new tab from Live) */
+  function playerPageUrl() {
+    return `${location.origin}${location.pathname}#/player`;
+  }
+
   /**
-   * Live page — one big button only: open club YouTube live in a new tab.
-   * Overlay / scoreboard later.
+   * Live page — one big button: opens our embedded player in a new tab.
    */
   async function viewWatch() {
     setOverlayMode(false);
@@ -1088,27 +1092,98 @@
     main().classList.add("main--wide");
     document.body.classList.add("watch-mode");
 
-    const LIVE_URL = "https://www.youtube.com/@LullingtonLive/live";
-    // Prefer saved feed if it’s a channel live link; otherwise force club default
-    const s = SWHub.loadSettings();
-    let liveUrl = LIVE_URL;
-    const saved = String(s.youtubeLiveFeedUrl || "").trim();
-    if (saved.includes("LullingtonLive") || saved.includes("@LullingtonLive")) {
-      liveUrl = saved.startsWith("http") ? saved.split("?")[0] : LIVE_URL;
-    }
-    if (!liveUrl.includes("youtube.com")) liveUrl = LIVE_URL;
+    const playerUrl = playerPageUrl();
 
     main().innerHTML = `
       <div class="watch-page watch-page--simple">
         <h1 class="watch-simple-title">Live</h1>
-        <p class="lead watch-lead">Lullington Live on YouTube</p>
-        <a class="btn-watch-live" id="btn-watch-live" href="${escAttr(liveUrl)}" target="_blank" rel="noopener noreferrer">
+        <p class="lead watch-lead">Lullington Live — opens the player in a new tab</p>
+        <a class="btn-watch-live" id="btn-watch-live" href="${escAttr(playerUrl)}" target="_blank" rel="noopener noreferrer">
           Watch Live
         </a>
-        <p class="muted watch-simple-hint">Opens in a new tab</p>
+        <p class="muted watch-simple-hint">New tab with the live stream embedded</p>
       </div>
     `;
 
+    stopActivePoll();
+  }
+
+  /**
+   * Full-window YouTube embed of @LullingtonLive live (not a redirect to youtube.com).
+   */
+  async function viewPlayer() {
+    setOverlayMode(false);
+    setNav("watch");
+    document.body.classList.add("player-mode");
+    main().classList.add("main--player");
+
+    main().innerHTML = `
+      <div class="player-page">
+        <div class="player-top">
+          <span class="player-label">Lullington Live</span>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-player-refresh">Refresh</button>
+          <a class="btn btn-sm btn-ghost" href="#/watch">Back</a>
+        </div>
+        <div class="player-frame-wrap" id="player-frame-wrap">
+          <div class="player-loading">Loading live stream…</div>
+        </div>
+      </div>
+    `;
+
+    const wrap = document.getElementById("player-frame-wrap");
+
+    async function mountPlayer() {
+      if (!wrap) return;
+      wrap.innerHTML = `<div class="player-loading">Loading live stream…</div>`;
+
+      let embedUrl = "";
+      let errMsg = "";
+
+      // 1) Server resolve current live on @LullingtonLive
+      try {
+        const resolved = await SWHub.resolveChannelLive?.("LullingtonLive");
+        if (resolved?.embedUrl) {
+          embedUrl = resolved.embedUrl;
+        } else if (resolved?.channelId) {
+          embedUrl = `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(resolved.channelId)}&autoplay=1&mute=0&playsinline=1`;
+        }
+      } catch (e) {
+        errMsg = e.message || String(e);
+      }
+
+      // 2) Optional Setup video id
+      if (!embedUrl) {
+        const vid = String(SWHub.loadSettings().youtubeVideoId || "").trim();
+        if (/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
+          embedUrl = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=0&playsinline=1`;
+        }
+      }
+
+      // 3) Known channel id fallback (from prior resolve)
+      if (!embedUrl) {
+        embedUrl =
+          "https://www.youtube.com/embed/live_stream?channel=UCR4PqiyQh_U9_PWnI8wT9fA&autoplay=1&mute=0&playsinline=1";
+      }
+
+      wrap.innerHTML = `
+        <iframe
+          class="player-iframe"
+          src="${escAttr(embedUrl)}"
+          title="Lullington Live"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      `;
+      if (errMsg) console.warn("[player]", errMsg);
+    }
+
+    document.getElementById("btn-player-refresh")?.addEventListener("click", () => {
+      mountPlayer();
+      toast("Refreshing player");
+    });
+
+    await mountPlayer();
     stopActivePoll();
   }
 
@@ -1232,6 +1307,7 @@
       else if (path === "/obs") viewObsGuide();
       else if (path === "/overlay") await viewOverlay();
       else if (path === "/watch" || path === "/board") await viewWatch();
+      else if (path === "/player") await viewPlayer();
       else viewNotFound();
     } catch (e) {
       console.error(e);

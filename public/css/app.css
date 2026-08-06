@@ -822,6 +822,75 @@ html.obs-capture .main.main--overlay {
   font-size: 0.9rem;
 }
 
+/* Full-tab embedded YouTube player */
+body.player-mode .topbar,
+body.player-mode .footer {
+  display: none;
+}
+
+body.player-mode #app {
+  min-height: 100dvh;
+  background: #000;
+}
+
+.main.main--player {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+
+.player-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 100vh;
+  background: #000;
+  color: #e8f5e9;
+}
+
+.player-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: #0a1f14;
+  border-bottom: 1px solid #1a3d2a;
+  flex-shrink: 0;
+}
+
+.player-label {
+  font-weight: 800;
+  margin-right: auto;
+  font-size: 0.95rem;
+}
+
+.player-frame-wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  background: #000;
+}
+
+.player-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.player-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8fb89a;
+  font-size: 1rem;
+}
+
 .watch-head h1 {
   margin-bottom: 4px;
 }
