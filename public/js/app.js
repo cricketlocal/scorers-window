@@ -270,15 +270,11 @@
       </div>
 
       <div class="card">
-        <h2>Fans — live feed</h2>
-        <p class="muted" style="margin:0 0 8px">
-          In-app live video uses the club channel:
-        </p>
-        <p class="mono" style="margin:0 0 12px;font-size:0.8rem;word-break:break-all">${esc(youtubeWatchUrl())}</p>
+        <h2>Watch Live</h2>
+        <p class="muted" style="margin:0 0 12px">Opens Lullington Live on YouTube in a new tab.</p>
         <div class="row-actions">
-          <a class="btn btn-live" href="#/watch">Open Live feed</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-watch-youtube">Watch on YouTube</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy live link</button>
+          <a class="btn btn-live" href="#/watch">Live page</a>
+          <a class="btn btn-ghost" href="https://www.youtube.com/@LullingtonLive/live" target="_blank" rel="noopener">YouTube ↗</a>
         </div>
       </div>
 
@@ -303,18 +299,6 @@
       copyText(obsBrowserSourceUrl(), "OBS Browser Source URL copied");
     });
 
-    document.getElementById("btn-watch-youtube")?.addEventListener("click", () => openYouTubeWatch());
-    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
-      const url = youtubeWatchUrl();
-      if (!url) {
-        toast("Add YouTube video ID in Setup first");
-        return;
-      }
-      copyText(url, "YouTube link copied — send to fans");
-    });
-    document.getElementById("btn-copy-watch")?.addEventListener("click", () => {
-      copyText(`${location.origin}${location.pathname}#/watch`, "Scores page link copied");
-    });
   }
 
   function viewSetup() {
@@ -1095,7 +1079,8 @@
   }
 
   /**
-   * Viewer page — always show @LullingtonLive/live as the video feed + scoreboard.
+   * Live page — one big button only: open club YouTube live in a new tab.
+   * Overlay / scoreboard later.
    */
   async function viewWatch() {
     setOverlayMode(false);
@@ -1103,154 +1088,28 @@
     main().classList.add("main--wide");
     document.body.classList.add("watch-mode");
 
-    const { params } = route();
+    const LIVE_URL = "https://www.youtube.com/@LullingtonLive/live";
+    // Prefer saved feed if it’s a channel live link; otherwise force club default
     const s = SWHub.loadSettings();
-    // Deep link ?v=ID still works as one-off override for this visit only
-    const ytFromUrl = (params.get("v") || params.get("yt") || params.get("video") || "").trim();
-
-    // Ensure channel live defaults (clear garbage full-URL "video ids")
-    const rawVid = String(s.youtubeVideoId || "").trim();
-    if (rawVid && !/^[a-zA-Z0-9_-]{11}$/.test(rawVid)) {
-      SWHub.saveSettings({
-        youtubeVideoId: "",
-        youtubeLiveFeedUrl: "https://www.youtube.com/@LullingtonLive/live",
-        youtubeChannelHandle: "LullingtonLive",
-      });
+    let liveUrl = LIVE_URL;
+    const saved = String(s.youtubeLiveFeedUrl || "").trim();
+    if (saved.includes("LullingtonLive") || saved.includes("@LullingtonLive")) {
+      liveUrl = saved.startsWith("http") ? saved.split("?")[0] : LIVE_URL;
     }
-    if (!s.youtubeLiveFeedUrl || !s.youtubeChannelHandle) {
-      SWHub.saveSettings({
-        youtubeLiveFeedUrl: "https://www.youtube.com/@LullingtonLive/live",
-        youtubeChannelHandle: "LullingtonLive",
-      });
-    }
-
-    if (!s.selectedMatchId) selectDemoMatch();
-
-    const defaultWatch = "https://www.youtube.com/@LullingtonLive/live";
+    if (!liveUrl.includes("youtube.com")) liveUrl = LIVE_URL;
 
     main().innerHTML = `
-      <div class="watch-page">
-        <header class="watch-head">
-          <h1>Live feed</h1>
-          <p class="lead watch-lead">Club live stream from YouTube + scoreboard.</p>
-          <p class="muted" id="yt-feed-status" style="margin:0 0 10px;font-size:0.85rem">Loading video…</p>
-          <div class="row-actions" style="margin-bottom:14px">
-            <a class="btn btn-live" id="btn-watch-youtube" href="${escAttr(defaultWatch)}" target="_blank" rel="noopener">Open on YouTube ↗</a>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-youtube">Copy live link</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-feed">Refresh video</button>
-          </div>
-        </header>
-        <div class="board-shell">
-          <div id="yt-feed-host" class="yt-feed-host">
-            <div class="card"><p class="muted" style="margin:0">Loading Lullington Live…</p></div>
-          </div>
-          <div class="board-score watch-score" id="board-score"></div>
-          <p class="watch-footnote muted">
-            Feed: <a href="${escAttr(defaultWatch)}" target="_blank" rel="noopener" class="mono" id="yt-feed-label">${esc(defaultWatch)}</a>
-          </p>
-        </div>
+      <div class="watch-page watch-page--simple">
+        <h1 class="watch-simple-title">Live</h1>
+        <p class="lead watch-lead">Lullington Live on YouTube</p>
+        <a class="btn-watch-live" id="btn-watch-live" href="${escAttr(liveUrl)}" target="_blank" rel="noopener noreferrer">
+          Watch Live
+        </a>
+        <p class="muted watch-simple-hint">Opens in a new tab</p>
       </div>
     `;
 
-    const host = document.getElementById("yt-feed-host");
-    const statusEl = document.getElementById("yt-feed-status");
-    let lastWatchUrl = defaultWatch;
-
-    async function loadVideo() {
-      if (!host) return;
-      host.innerHTML = `<div class="card"><p class="muted" style="margin:0">Loading Lullington Live…</p></div>`;
-      if (statusEl) statusEl.textContent = "Connecting to YouTube…";
-
-      let embed = "";
-      let watch = defaultWatch;
-      let title = "";
-
-      // Optional one-visit override from URL ?v=
-      if (ytFromUrl) {
-        const p = SWHub.parseYouTubeInput?.(ytFromUrl);
-        if (p?.embedUrl) {
-          embed = p.embedUrl;
-          watch = p.watchUrl;
-        }
-      }
-
-      // Prefer live channel resolve (current stream on @LullingtonLive)
-      if (!embed) {
-        const handle = SWHub.loadSettings().youtubeChannelHandle || "LullingtonLive";
-        try {
-          const resolved = await SWHub.resolveChannelLive?.(handle);
-          if (resolved?.embedUrl) {
-            embed = resolved.embedUrl;
-            watch = resolved.watchUrl || watch;
-            title = resolved.title || "";
-          } else if (resolved?.channelId) {
-            embed = `https://www.youtube.com/embed/live_stream?channel=${resolved.channelId}&autoplay=1&mute=1&playsinline=1`;
-            watch = `https://www.youtube.com/@${handle}/live`;
-          }
-        } catch (e) {
-          console.warn(e);
-        }
-      }
-
-      // Optional Setup override: fixed video id (11 chars only)
-      if (!embed) {
-        const vid = String(SWHub.loadSettings().youtubeVideoId || "").trim();
-        if (/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
-          embed = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=1&playsinline=1`;
-          watch = `https://www.youtube.com/live/${vid}`;
-        }
-      }
-
-      lastWatchUrl = watch || defaultWatch;
-      host.innerHTML = youtubeEmbedHtml(embed, lastWatchUrl);
-      const openBtn = document.getElementById("btn-watch-youtube");
-      if (openBtn) openBtn.setAttribute("href", lastWatchUrl);
-      const lab = document.getElementById("yt-feed-label");
-      if (lab) {
-        lab.textContent = lastWatchUrl;
-        lab.setAttribute("href", lastWatchUrl);
-      }
-      if (statusEl) {
-        statusEl.textContent = embed
-          ? title
-            ? `Playing: ${title}`
-            : "Live feed loaded"
-          : "Could not embed — use Open on YouTube";
-      }
-    }
-
-    document.getElementById("btn-copy-youtube")?.addEventListener("click", () => {
-      copyText(lastWatchUrl || defaultWatch, "Live link copied");
-    });
-    document.getElementById("btn-refresh-feed")?.addEventListener("click", () => {
-      loadVideo();
-      toast("Refreshing live feed");
-    });
-
-    const box = document.getElementById("board-score");
-
-    async function tick() {
-      try {
-        const m = await resolveActiveMatch();
-        const match = m || SWHub.getDemoMatch();
-        SWOverlay.mount(box, match, {
-          brand: match?.demo ? "DEMO · LPCC" : s.clubLabel || "Live",
-        });
-      } catch (e) {
-        const demo = SWHub.getDemoMatch();
-        if (demo) SWOverlay.mount(box, demo, { brand: "DEMO · LPCC" });
-        else SWOverlay.mount(box, null, { brand: "Live", extra: e.message });
-      }
-    }
-
-    await loadVideo();
-    await tick();
     stopActivePoll();
-    stopPoll = SWHub.poll(async () => {
-      const p = route().path;
-      if (p !== "/watch" && p !== "/board") return;
-      await tick();
-    }, SWHub.POLL_MS);
   }
 
   /** Alias — same as watch (old links) */

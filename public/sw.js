@@ -1,5 +1,5 @@
 /* Scorers Window — light shell cache */
-const CACHE = "scorers-window-v21";
+const CACHE = "scorers-window-v22";
 const ASSETS = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/hub.js", "/js/overlay.js", "/js/demo.js", "/js/stream.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {

@@ -771,6 +771,57 @@ html.obs-capture .main.main--overlay {
   margin: 0 auto;
 }
 
+.watch-page--simple {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 55vh;
+  padding: 24px 16px 48px;
+}
+
+.watch-simple-title {
+  font-size: 2rem;
+  margin: 0 0 8px;
+}
+
+.watch-page--simple .watch-lead {
+  margin-bottom: 28px;
+}
+
+.btn-watch-live {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 360px);
+  min-height: 88px;
+  padding: 22px 28px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ef4444, #b91c1c);
+  border: 2px solid #7f1d1d;
+  color: #fff !important;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-decoration: none !important;
+  box-shadow: 0 12px 36px rgba(185, 28, 28, 0.45);
+}
+
+.btn-watch-live:hover {
+  filter: brightness(1.06);
+  color: #fff !important;
+}
+
+.btn-watch-live:active {
+  transform: scale(0.98);
+}
+
+.watch-simple-hint {
+  margin: 18px 0 0;
+  font-size: 0.9rem;
+}
+
 .watch-head h1 {
   margin-bottom: 4px;
 }
