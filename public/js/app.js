@@ -110,22 +110,22 @@
         { cache: "no-store" }
       );
       const j = await res.json();
-      // Green only when we have the actual live video id (same stream as /@LullingtonLive/live)
-      const live = !!(j.videoId && (j.isLive !== false));
+      // Green only when YouTube says this video is live NOW (same as /@LullingtonLive/live)
+      const videoId = j.videoId || null;
+      const live = !!(videoId && j.isLive === true);
+      // NEVER use embed/live_stream?channel= — YouTube often shows a different stream
+      // than youtube.com/@LullingtonLive/live. Only concrete video embeds match.
+      const embedUrl = videoId
+        ? j.videoEmbedUrl ||
+          j.embedUrl ||
+          `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
+        : "";
       ytLiveStatus = {
         isLive: live,
-        videoId: j.videoId || null,
+        videoId,
         channelId: j.channelId || CHANNEL_ID,
         title: j.title || "",
-        // Prefer concrete video embed — channel live_stream often shows wrong/blank feed
-        embedUrl:
-          j.videoEmbedUrl ||
-          (j.videoId
-            ? `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
-            : j.channelEmbedUrl ||
-              (j.channelId || CHANNEL_ID
-                ? `https://www.youtube.com/embed/live_stream?channel=${j.channelId || CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`
-                : "")),
+        embedUrl,
         watchUrl: WATCH_PAGE,
       };
       return ytLiveStatus;
@@ -135,7 +135,7 @@
         videoId: null,
         channelId: CHANNEL_ID,
         title: "",
-        embedUrl: `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`,
+        embedUrl: "",
         watchUrl: WATCH_PAGE,
         error: e.message,
       };
@@ -225,8 +225,8 @@
 
     function paintPlayer(st) {
       if (!player) return;
-      // Only embed when we know the live video id (matches youtube.com/@LullingtonLive/live)
-      if (st?.videoId && st?.embedUrl) {
+      // Only embed concrete video id (same stream as youtube.com/@LullingtonLive/live)
+      if (st?.videoId && st?.embedUrl && !st.embedUrl.includes("live_stream?channel=")) {
         const src = `${st.embedUrl}${st.embedUrl.includes("?") ? "&" : "?"}_=${Date.now()}`;
         player.innerHTML = `
           <iframe
@@ -239,12 +239,12 @@
         `;
         return;
       }
-      // Offline / unresolved: no wrong channel embed — show status + link
+      // Offline / unresolved: never use channel live_stream embed (wrong feed)
       player.innerHTML = `
         <div class="watch-video-placeholder card yt-fallback" style="min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center">
           <p style="margin:0 0 8px;font-weight:700">${st?.isLive ? "Loading live video…" : "No live stream detected"}</p>
           <p class="muted" style="margin:0 0 12px;font-size:0.9rem;text-align:center">
-            Open the same feed YouTube shows for the club channel.
+            Same feed as YouTube — open the channel live page if the embed is not ready.
           </p>
           <a class="btn btn-live" href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">Open @LullingtonLive/live ↗</a>
         </div>
@@ -266,11 +266,16 @@
 
     await refreshLive();
     stopActivePoll();
+    let lastEmbedId = ytLiveStatus?.videoId || null;
     stopPoll = SWHub.poll(async () => {
       if (route().path !== "/live" && route().path !== "/") return;
       const st = await fetchYoutubeLiveStatus();
       paintButton(st);
-      // Don't rebuild iframe every poll if already showing (avoids flicker)
+      // Rebuild iframe only when the resolved video id changes (new live stream)
+      if ((st?.videoId || null) !== lastEmbedId) {
+        lastEmbedId = st?.videoId || null;
+        paintPlayer(st);
+      }
     }, 60000);
   }
 

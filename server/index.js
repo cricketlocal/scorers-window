@@ -63,135 +63,224 @@ app.get("/api/stream/status", (_req, res) => {
 
 /**
  * Resolve @handle live for in-app embed.
- * Prefer channel live_stream embed (matches youtube.com/@handle/live).
+ * IMPORTANT: never rely on embed/live_stream?channel= — YouTube often shows a
+ * different (or blank) stream than youtube.com/@handle/live. Always embed the
+ * concrete videoId from the channel /live page (or RSS latest live stream).
  * GET /api/youtube/channel-live?handle=LullingtonLive
  */
+const YT_KNOWN = {
+  LullingtonLive: "UCR4PqiyQh_U9_PWnI8wT9fA",
+};
+const YT_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+// Bypass EU consent interstitial that strips ytInitialPlayerResponse
+const YT_COOKIE =
+  "CONSENT=YES+cb.20210328-17-p0.en+FX+123; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnPpwY";
+
+function parseYtPlayerResponse(html) {
+  const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{)/);
+  if (!prMatch) return null;
+  const start = prMatch.index + prMatch[0].length - 1;
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < html.length && i < start + 2_000_000; i++) {
+    const ch = html[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+  if (end <= start) return null;
+  try {
+    return JSON.parse(html.slice(start, end));
+  } catch {
+    return null;
+  }
+}
+
+function extractVideoIdFromHtml(html, finalUrl) {
+  let videoId = "";
+  let title = "";
+  let isLive = false;
+
+  const pr = parseYtPlayerResponse(html);
+  if (pr?.videoDetails?.videoId) {
+    videoId = String(pr.videoDetails.videoId);
+    title = pr.videoDetails.title || "";
+    const live = pr.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+    if (live && typeof live.isLiveNow === "boolean") {
+      isLive = !!live.isLiveNow;
+    } else {
+      isLive = !!(pr.videoDetails.isLive || pr.videoDetails.isUpcoming);
+    }
+  }
+
+  if (!videoId) {
+    const fromFinal = String(finalUrl || "").match(/(?:[?&]v=|\/live\/|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+    if (fromFinal) videoId = fromFinal[1];
+  }
+
+  if (!videoId) {
+    const patterns = [
+      /"isLiveNow"\s*:\s*true[\s\S]{0,400}?"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      /"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"[\s\S]{0,400}?"isLiveNow"\s*:\s*true/,
+      /"videoDetails"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      /"VIDEO_ID"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+      /"currentVideoEndpoint"[^}]{0,200}"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1] && m[1] !== "live_stream") {
+        videoId = m[1];
+        if (/isLiveNow/.test(re.source)) isLive = true;
+        break;
+      }
+    }
+  }
+
+  // Any 11-char videoId near live badge (channel /live pages sometimes omit full PR)
+  if (!videoId) {
+    const ids = [...html.matchAll(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/g)].map((m) => m[1]);
+    const uniq = [...new Set(ids)].filter((id) => id !== "live_stream");
+    if (uniq.length === 1) videoId = uniq[0];
+    else if (uniq.length > 1 && /isLiveNow"\s*:\s*true/.test(html)) {
+      const near = html.match(/"isLiveNow"\s*:\s*true[\s\S]{0,800}?"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+      if (near) {
+        videoId = near[1];
+        isLive = true;
+      }
+    }
+  }
+
+  if (!title) {
+    const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
+    if (t) title = t[1];
+  }
+  if (!title) {
+    const t2 = html.match(/<title>([^<]+)<\/title>/i);
+    if (t2) title = t2[1].replace(/\s*-\s*YouTube\s*$/i, "").trim();
+  }
+  if (title === "Keyboard shortcuts" || /consent|before you continue/i.test(title || "")) {
+    title = "";
+  }
+
+  return { videoId, title, isLive };
+}
+
+async function ytFetch(url) {
+  const r = await fetch(url, {
+    headers: {
+      "User-Agent": YT_UA,
+      "Accept-Language": "en-GB,en;q=0.9",
+      Accept: "text/html,application/xhtml+xml",
+      Cookie: YT_COOKIE,
+    },
+    redirect: "follow",
+  });
+  const html = await r.text();
+  return { html, finalUrl: r.url || url, status: r.status };
+}
+
+async function ytRssLatest(channelId) {
+  try {
+    const r = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
+      headers: { "User-Agent": YT_UA, Accept: "application/atom+xml,application/xml,text/xml" },
+    });
+    const xml = await r.text();
+    const id = (xml.match(/<yt:videoId>([a-zA-Z0-9_-]{11})<\/yt:videoId>/) || [])[1] || "";
+    const titles = [...xml.matchAll(/<title>([^<]*)<\/title>/g)].map((m) => m[1]);
+    // first title is channel name; second is latest video
+    const title = titles[1] || titles[0] || "";
+    return { videoId: id, title };
+  } catch {
+    return { videoId: "", title: "" };
+  }
+}
+
+async function ytWatchMeta(videoId) {
+  try {
+    const { html } = await ytFetch(`https://www.youtube.com/watch?v=${videoId}`);
+    const pr = parseYtPlayerResponse(html);
+    if (!pr?.videoDetails) {
+      const loose = extractVideoIdFromHtml(html, "");
+      return { title: loose.title || "", isLive: loose.isLive };
+    }
+    const live = pr.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+    return {
+      title: pr.videoDetails.title || "",
+      isLive: live ? !!live.isLiveNow : !!(pr.videoDetails.isLive || pr.videoDetails.isUpcoming),
+    };
+  } catch {
+    return { title: "", isLive: false };
+  }
+}
+
 app.get("/api/youtube/channel-live", async (req, res) => {
   const handle = String(req.query.handle || "LullingtonLive")
     .replace(/^@/, "")
     .replace(/[^\w.-]/g, "");
   if (!handle) return res.status(400).json({ ok: false, error: "handle required" });
 
-  // Hardcoded club channel (reliable; matches @LullingtonLive)
-  const KNOWN = {
-    LullingtonLive: "UCR4PqiyQh_U9_PWnI8wT9fA",
-  };
-
-  const ua =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
-  const pageUrl = `https://www.youtube.com/@${handle}/live`;
+  const channelId = YT_KNOWN[handle] || null;
+  const watchUrl = `https://www.youtube.com/@${handle}/live`;
 
   try {
-    let html = "";
-    let finalUrl = pageUrl;
-    try {
-      const r = await fetch(pageUrl, {
-        headers: {
-          "User-Agent": ua,
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept: "text/html",
-        },
-        redirect: "follow",
-      });
-      html = await r.text();
-      finalUrl = r.url || pageUrl;
-    } catch {
-      /* scrape optional */
-    }
-
-    let channelId = KNOWN[handle] || "";
-    const chPatterns = [
-      /"channelId":"(UC[^"]+)"/,
-      /"externalId":"(UC[^"]+)"/,
-      /itemprop="channelId" content="(UC[^"]+)"/,
-    ];
-    for (const re of chPatterns) {
-      const m = html.match(re);
-      if (m) {
-        channelId = m[1];
-        break;
-      }
-    }
-    if (!channelId) channelId = KNOWN[handle] || null;
-
-    // Live video id: prefer redirect URL, then isLiveNow / videoDetails near live
     let videoId = "";
-    let isLive = false;
     let title = "";
+    let isLive = false;
+    let finalUrl = watchUrl;
+    let source = "";
 
-    // Best source: ytInitialPlayerResponse.videoDetails (same as /@handle/live player)
-    const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{)/);
-    if (prMatch) {
+    // 1) /channel/UC…/live is more reliable than /@handle/live (less consent junk)
+    const pageUrls = [];
+    if (channelId) pageUrls.push(`https://www.youtube.com/channel/${channelId}/live`);
+    pageUrls.push(watchUrl);
+
+    for (const pageUrl of pageUrls) {
       try {
-        const start = prMatch.index + prMatch[0].length - 1;
-        let depth = 0;
-        let end = -1;
-        for (let i = start; i < html.length && i < start + 2_000_000; i++) {
-          const ch = html[i];
-          if (ch === "{") depth++;
-          else if (ch === "}") {
-            depth--;
-            if (depth === 0) {
-              end = i + 1;
-              break;
-            }
-          }
-        }
-        if (end > start) {
-          const pr = JSON.parse(html.slice(start, end));
-          const vd = pr.videoDetails || {};
-          if (vd.videoId) {
-            videoId = String(vd.videoId);
-            isLive = !!(vd.isLive || vd.isLiveContent || vd.isUpcoming);
-            title = vd.title || "";
-          }
-        }
-      } catch (e) {
-        console.warn("[channel-live] playerResponse parse", e.message);
-      }
-    }
-
-    // Redirect URL (when /live redirects to watch?v=)
-    if (!videoId) {
-      const fromFinal = String(finalUrl).match(/(?:v=|\/live\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
-      if (fromFinal && !String(finalUrl).includes(`@${handle}`)) {
-        videoId = fromFinal[1];
-        isLive = true;
-      }
-    }
-
-    // Live-flag pairs only (avoid recommended VODs)
-    if (!videoId) {
-      const livePatterns = [
-        /"isLiveNow"\s*:\s*true[\s\S]{0,400}?"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
-        /"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"[\s\S]{0,400}?"isLiveNow"\s*:\s*true/,
-        /"videoDetails"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/,
-      ];
-      for (const re of livePatterns) {
-        const m = html.match(re);
-        if (m) {
-          videoId = m[1];
-          isLive = true;
+        const page = await ytFetch(pageUrl);
+        finalUrl = page.finalUrl;
+        const extracted = extractVideoIdFromHtml(page.html, page.finalUrl);
+        if (extracted.videoId) {
+          videoId = extracted.videoId;
+          title = extracted.title;
+          isLive = extracted.isLive;
+          source = pageUrl;
           break;
         }
+      } catch (e) {
+        console.warn("[channel-live] page fetch", pageUrl, e.message);
       }
     }
 
-    if (!title) {
-      const t = html.match(/"title":\{"runs":\[\{"text":"([^"]+)"/);
-      if (t) title = t[1];
-    }
-    if (!title) {
-      const t2 = html.match(/<title>([^<]+)<\/title>/i);
-      if (t2) title = t2[1].replace(/\s*-\s*YouTube\s*$/i, "").trim();
+    // 2) RSS latest upload (works when HTML scrape is empty; often the live stream VOD)
+    if (!videoId && channelId) {
+      const rss = await ytRssLatest(channelId);
+      if (rss.videoId) {
+        videoId = rss.videoId;
+        title = rss.title || title;
+        source = "rss";
+      }
     }
 
-    // Concrete video embed matches the /live page; channel live_stream often shows wrong/blank
+    // 3) Confirm live flag + title from watch page (same player as /live when that id is active)
+    if (videoId) {
+      const meta = await ytWatchMeta(videoId);
+      if (meta.title) title = meta.title;
+      // Only trust isLive from watch page when we could read it; keep earlier true
+      if (meta.isLive) isLive = true;
+      else if (source === "rss") isLive = false;
+      else isLive = meta.isLive;
+    }
+
+    // Concrete video embed only — channel live_stream embed is intentionally omitted
+    // (YouTube serves a different/blank stream than @handle/live for many channels)
     const videoEmbed = videoId
       ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
-      : null;
-    const channelEmbed = channelId
-      ? `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1&mute=1&playsinline=1`
       : null;
 
     res.json({
@@ -200,28 +289,26 @@ app.get("/api/youtube/channel-live", async (req, res) => {
       videoId: videoId || null,
       channelId: channelId || null,
       title: title || null,
-      watchUrl: `https://www.youtube.com/@${handle}/live`,
-      // Prefer the actual live video id (same as channel /live page)
-      embedUrl: videoEmbed || channelEmbed,
+      watchUrl,
+      embedUrl: videoEmbed,
       videoEmbedUrl: videoEmbed,
-      channelEmbedUrl: channelEmbed,
-      isLive: !!(videoId && isLive) || !!videoId,
+      channelEmbedUrl: null,
+      isLive: !!(videoId && isLive),
       finalUrl,
+      source: source || null,
     });
   } catch (err) {
-    const ch = KNOWN[handle] || null;
     res.status(200).json({
       ok: true,
       handle,
-      channelId: ch,
+      channelId,
       videoId: null,
-      watchUrl: `https://www.youtube.com/@${handle}/live`,
-      embedUrl: ch
-        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=1&playsinline=1`
-        : null,
-      channelEmbedUrl: ch
-        ? `https://www.youtube.com/embed/live_stream?channel=${ch}&autoplay=1&mute=1&playsinline=1`
-        : null,
+      title: null,
+      watchUrl,
+      embedUrl: null,
+      videoEmbedUrl: null,
+      channelEmbedUrl: null,
+      isLive: false,
       error: err.message || String(err),
     });
   }
