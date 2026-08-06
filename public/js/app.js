@@ -901,7 +901,7 @@
   }
 
   /**
-   * Guided OBS → YouTube setup so overlay is burned into the live (and VOD) feed.
+   * Guided OBS / Moblin → YouTube setup so overlay is burned into the live (and VOD) feed.
    */
   function viewObsGuide() {
     setOverlayMode(false);
@@ -915,25 +915,44 @@
     if (!s.selectedMatchId) selectDemoMatch();
 
     main().innerHTML = `
-      <h1>OBS → YouTube</h1>
+      <h1>Scoreboard on stream</h1>
       <p class="lead">
-        Put our scoreboard <strong>inside</strong> the YouTube live stream. Viewers on YouTube (live and later)
-        see camera + scores. You only set this up once per match day.
+        Your screenshot shows Moblin’s <strong>Practice scoreboard</strong> (tiny bar + “Practice scoreboard”).
+        That is <em>not</em> Scorers Window. Use a <strong>Browser widget</strong> with our overlay URL instead.
       </p>
 
       <div class="card demo-select-card">
-        <h2>1. Browser Source URL (copy this)</h2>
-        <p class="muted" style="margin:0 0 8px">Paste into OBS as a <strong>Browser</strong> source. Transparent page — scores only.</p>
+        <h2>Moblin (phone) — fix the overlay</h2>
+        <ol class="obs-steps">
+          <li><strong>Remove</strong> the Moblin Scoreboard widget that says “Practice scoreboard” (or turn practice off).</li>
+          <li>Add a <strong>Browser</strong> widget (not Scoreboard).</li>
+          <li>Paste this URL into the browser widget:</li>
+        </ol>
         <p class="mono obs-url-box" id="obs-url-box">${esc(obsUrl)}</p>
         <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-copy-obs-url">Copy URL</button>
-          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
+          <button type="button" class="btn btn-primary" id="btn-copy-obs-url">Copy overlay URL</button>
+          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview</a>
           <button type="button" class="btn btn-sm" id="btn-obs-demo">Select demo match</button>
         </div>
+        <ol class="obs-steps" start="4" style="margin-top:14px">
+          <li>Size about <strong>1920×400</strong> (or full width × ~400 high) and pin it to the <strong>bottom</strong> of the scene.</li>
+          <li>Enable transparent background if Moblin has that option.</li>
+          <li>In Scorers Window (this site) first: <strong>Select demo match</strong> or a live game so the URL has scores.</li>
+          <li>“Live stream offline” is separate — that means Moblin is not connected to YouTube yet (stream key / Go Live in Studio).</li>
+        </ol>
         <p class="muted" style="margin:12px 0 0;font-size:0.85rem">
-          Match: <strong id="obs-match-label">${esc(SWHub.loadSettings().selectedMatchId || "demo")}</strong>
+          Match selected: <strong id="obs-match-label">${esc(SWHub.loadSettings().selectedMatchId || "demo")}</strong>
           ${matchOk ? " · ready" : ""}
         </p>
+      </div>
+
+      <div class="card">
+        <h2>OBS (computer) — same URL</h2>
+        <p class="muted" style="margin:0 0 8px">Paste into OBS as a <strong>Browser</strong> source. Transparent page — scores only.</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-copy-obs-url-2">Copy URL</button>
+          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
+        </div>
       </div>
 
       <div class="card">
@@ -995,9 +1014,9 @@
       </div>
     `;
 
-    document.getElementById("btn-copy-obs-url")?.addEventListener("click", () => {
-      copyText(obsBrowserSourceUrl(), "Browser Source URL copied — paste in OBS");
-    });
+    const copyObs = () => copyText(obsBrowserSourceUrl(), "Overlay URL copied — paste into Moblin Browser widget or OBS");
+    document.getElementById("btn-copy-obs-url")?.addEventListener("click", copyObs);
+    document.getElementById("btn-copy-obs-url-2")?.addEventListener("click", copyObs);
     document.getElementById("btn-copy-obs-css")?.addEventListener("click", () => {
       copyText(
         "body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }",
@@ -1204,7 +1223,14 @@
 
   /** Clean browser-source URL for OBS (no tip chrome) */
   function obsBrowserSourceUrl() {
-    return `${location.origin}${location.pathname}#/overlay?obs=1`;
+    // Prefer Docker host when opened from static or wrong origin
+    const host = location.hostname.includes("scorers-window")
+      ? location.origin
+      : "https://scorers-window-live.onrender.com";
+    const origin = location.hostname.includes("onrender.com") || location.hostname === "localhost"
+      ? location.origin
+      : host;
+    return `${origin}/#/overlay?obs=1`;
   }
 
   /** Public YouTube watch/live URL from saved or query video id */

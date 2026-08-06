@@ -849,19 +849,19 @@ html.obs-capture .main.main--overlay {
   padding: 0;
 }
 
-/* Compact + ~50% transparent score bar */
+/* Score bar for Moblin / OBS browser widget — readable on stream */
 .overlay-bar {
-  margin: 0 3% 2%;
-  padding: 6px 12px 7px;
-  border-radius: 10px;
-  background: rgba(6, 20, 13, 0.5);
-  border: 1px solid rgba(74, 222, 128, 0.3);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  margin: 0 2% 2.5%;
+  padding: 10px 14px 12px;
+  border-radius: 12px;
+  background: rgba(6, 20, 13, 0.82);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   font-family: var(--font);
   color: #ecfdf5;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .overlay-bar .ob-top {
@@ -932,7 +932,7 @@ html.obs-capture .main.main--overlay {
 }
 
 .overlay-bar .ob-name {
-  font-size: clamp(0.7rem, 1.6vw, 0.9rem);
+  font-size: clamp(0.85rem, 2vw, 1.1rem);
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
@@ -941,7 +941,7 @@ html.obs-capture .main.main--overlay {
 }
 
 .overlay-bar .ob-score {
-  font-size: clamp(0.95rem, 2.2vw, 1.2rem);
+  font-size: clamp(1.15rem, 2.8vw, 1.55rem);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #4ade80;

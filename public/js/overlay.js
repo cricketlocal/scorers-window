@@ -53,6 +53,19 @@
     return `${first.charAt(0)}. ${last}`;
   }
 
+  /** "Lullington Park CC - 1st XI" → "Lullington Park 1st XI" for stream readability */
+  function shortTeam(name) {
+    let n = String(name || "").trim();
+    if (!n) return "—";
+    n = n
+      .replace(/\s*CC\s*/gi, " ")
+      .replace(/\s*-\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (n.length > 28) n = n.slice(0, 26) + "…";
+    return n;
+  }
+
   function extractDetail(match) {
     if (!match) return null;
     if (match.detail && (match.detail.batters || match.detail.bowler || match.detail.lastBalls)) {
@@ -218,12 +231,12 @@
         </div>
         <div class="ob-teams">
           <div class="ob-team">
-            <div class="ob-name" title="${esc(match.homeTeam)}">${esc(match.homeTeam)}</div>
+            <div class="ob-name" title="${esc(match.homeTeam)}">${esc(shortTeam(match.homeTeam))}</div>
             <div class="ob-score">${esc(match.homeScore)}</div>
           </div>
           <div class="ob-vs">VS</div>
           <div class="ob-team away">
-            <div class="ob-name" title="${esc(match.awayTeam)}">${esc(match.awayTeam)}</div>
+            <div class="ob-name" title="${esc(match.awayTeam)}">${esc(shortTeam(match.awayTeam))}</div>
             <div class="ob-score">${esc(match.awayScore)}</div>
           </div>
         </div>
