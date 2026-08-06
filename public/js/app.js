@@ -1,75 +1,25 @@
 /**
- * Scorers Window — phone-first hash SPA
- * Ideal: open link → pick game → Go Live (stream key saved once in Setup).
- * Routes: / #/go-live #/live #/setup #/obs #/overlay
+ * Scorers Window — minimal SPA
+ * 1) Live — embedded YouTube + Watch Live Video (red offline / green live)
+ * 2) Settings — fixture for overlay + Moblin overlay URL
+ * Overlay page remains for Moblin browser widget: #/overlay?obs=1
  */
 (function () {
-  const { SWHub, SWOverlay, SWDemo, SWStream } = window;
+  const { SWHub, SWOverlay, SWDemo } = window;
   const main = () => document.getElementById("main");
   const hubStatusEl = () => document.getElementById("hub-status");
 
+  const CHANNEL_HANDLE = "LullingtonLive";
+  const CHANNEL_ID = "UCR4PqiyQh_U9_PWnI8wT9fA";
+  const WATCH_PAGE = "https://www.youtube.com/@LullingtonLive/live";
+
   let stopPoll = null;
-  let mediaStream = null;
   let cachedMatches = [];
-  let activeMatch = null;
-  /** True while user is in a Go Live session on the control-room page */
-  let onAir = false;
-
-  function cameraIsLive() {
-    return !!(mediaStream && mediaStream.getTracks().some((t) => t.readyState === "live"));
-  }
-
-  function bindCameraToVideo() {
-    const video = document.getElementById("cam");
-    const ph = document.getElementById("cam-ph");
-    if (!video) return;
-    if (cameraIsLive()) {
-      if (video.srcObject !== mediaStream) video.srcObject = mediaStream;
-      video.play?.().catch(() => {});
-      if (ph) ph.style.display = "none";
-    } else if (ph) {
-      ph.style.display = "";
-    }
-  }
-
-  async function startCamera() {
-    if (cameraIsLive()) {
-      bindCameraToVideo();
-      return mediaStream;
-    }
-    stopCamera();
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
-    });
-    bindCameraToVideo();
-    return mediaStream;
-  }
-
-  function updateOnAirUi() {
-    const btn = document.getElementById("btn-go-live");
-    const end = document.getElementById("btn-end-live");
-    const pill = document.getElementById("on-air-pill");
-    const note = document.getElementById("go-live-note");
-    if (btn) {
-      btn.textContent = onAir ? "On Air" : "Go Live";
-      btn.disabled = onAir;
-      btn.classList.toggle("btn-live", !onAir);
-    }
-    if (end) end.hidden = !onAir;
-    if (pill) {
-      pill.hidden = !onAir;
-      pill.textContent = onAir ? (cameraIsLive() ? "ON AIR · camera on" : "ON AIR · camera off") : "";
-    }
-    if (note && onAir) {
-      note.textContent =
-        "On air — open Live cam + score for full-screen camera with graphics. OBS score only is transparent (no camera).";
-    }
-  }
+  let ytLiveStatus = null; // { isLive, videoId, title, embedUrl }
 
   function route() {
-    const hash = (location.hash || "#/").replace(/^#/, "") || "/";
-    const path = hash.split("?")[0] || "/";
+    const hash = (location.hash || "#/live").replace(/^#/, "") || "/live";
+    const path = hash.split("?")[0] || "/live";
     const params = new URLSearchParams(hash.includes("?") ? hash.split("?")[1] : "");
     return { path: path.startsWith("/") ? path : `/${path}`, params };
   }
@@ -100,931 +50,15 @@
     }
   }
 
-  function stopCamera() {
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((t) => t.stop());
-      mediaStream = null;
-    }
-    const video = document.getElementById("cam");
-    if (video) video.srcObject = null;
-    const ph = document.getElementById("cam-ph");
-    if (ph) ph.style.display = "";
-  }
-
-  function setOverlayMode(on, { withCamera = false } = {}) {
-    document.body.classList.toggle("overlay-mode", !!on && !withCamera);
-    document.body.classList.toggle("live-cam-mode", !!withCamera);
+  function setOverlayMode(on) {
+    document.body.classList.toggle("overlay-mode", !!on);
+    document.body.classList.remove("player-mode", "watch-mode", "live-cam-mode");
     const m = main();
     if (!m) return;
-    m.classList.toggle("main--overlay", !!on || !!withCamera);
-    m.classList.toggle("main--wide", false);
+    m.classList.toggle("main--overlay", !!on);
+    m.classList.remove("main--wide", "main--player");
+    document.documentElement.classList.toggle("obs-capture", !!on);
   }
-
-  function isCameraRoute(path) {
-    return path === "/go-live" || path === "/live";
-  }
-
-  async function refreshHubStatus() {
-    const el = hubStatusEl();
-    if (!el) return;
-    try {
-      const s = await SWHub.fetchStatus();
-      const n = s.liveNow ?? s.liveCount ?? 0;
-      el.textContent = `live ${n} · ${SWHub.hubBase().replace(/^https?:\/\//, "")}`;
-      el.className = "hub-status ok";
-      el.title = JSON.stringify(s).slice(0, 200);
-    } catch (e) {
-      el.textContent = "hub offline";
-      el.className = "hub-status err";
-      el.title = e.message || String(e);
-    }
-  }
-
-  function selectDemoMatch() {
-    const d = SWHub.getDemoMatch();
-    if (!d) {
-      toast("Demo match not available");
-      return null;
-    }
-    SWHub.saveSettings({
-      selectedMatchId: d.id,
-      selectedSite: d.site || "https://lpcc.play-cricket.com",
-      clubLabel: SWHub.loadSettings().clubLabel || "Lullington Park CC",
-      useDemoWhenIdle: true,
-    });
-    activeMatch = d;
-    return d;
-  }
-
-  async function loadMatches() {
-    let data = { matches: [], message: null, liveCount: 0 };
-    try {
-      data = await SWHub.fetchHub();
-    } catch (e) {
-      data = { matches: [], message: e.message || "Hub offline", liveCount: 0, hubError: true };
-    }
-    const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
-    const demo = SWHub.getDemoMatch();
-    // Always include weekend demo so it can be selected
-    let list = liveList.slice();
-    if (demo && !list.some((m) => m.id === demo.id)) {
-      list = [...list, demo];
-    }
-    cachedMatches = list;
-    return {
-      list,
-      liveList,
-      demo,
-      message: data.message || null,
-      liveCount: data.liveCount ?? liveList.length,
-      usingDemoOnly: liveList.length === 0 && !!demo,
-      hubError: !!data.hubError,
-    };
-  }
-
-  async function resolveActiveMatch() {
-    const settings = SWHub.loadSettings();
-    const { list, demo } = await loadMatches();
-
-    // Explicit weekend demo id
-    if (settings.selectedMatchId && (SWDemo?.isDemoId?.(settings.selectedMatchId) || settings.selectedMatchId === demo?.id)) {
-      activeMatch = demo || SWHub.getDemoMatch();
-      return activeMatch;
-    }
-
-    if (settings.selectedMatchId) {
-      let m = list.find((x) => x.id === settings.selectedMatchId && !x.demo);
-      if (!m) {
-        try {
-          const detail = await SWHub.fetchMatch(settings.selectedMatchId, settings.selectedSite);
-          const row = detail.match || detail.board || detail;
-          m = SWHub.normaliseMatch({
-            ...row,
-            id: settings.selectedMatchId,
-            site: settings.selectedSite || row.site,
-            board: detail.board || row.board || row,
-          });
-        } catch {
-          m = null;
-        }
-      }
-      if (m) {
-        activeMatch = m;
-        return m;
-      }
-    }
-
-    // Prefer a real live match; otherwise weekend demo
-    const live = list.find((x) => x.live && !x.demo);
-    activeMatch = live || demo || list[0] || null;
-    return activeMatch;
-  }
-
-  /* ——— Views ——— */
-
-  function viewHome() {
-    setOverlayMode(false);
-    setNav("home");
-    const s = SWHub.loadSettings();
-    const demo = SWHub.getDemoMatch();
-    const hasKey = SWStream?.hasStreamKey?.() || !!(s.youtubeStreamKey || "").trim();
-    const keyMask = SWStream?.streamKeyMasked?.() || "";
-    const demoActive = demo && (s.selectedMatchId === demo.id || SWDemo?.isDemoId?.(s.selectedMatchId));
-
-    main().innerHTML = `
-      <h1>Scorers Window</h1>
-      <p class="lead phone-flow-lead">
-        <strong>On the phone:</strong> open this site → pick the game → <strong>Go Live</strong>.<br/>
-        Stream key once in Setup. Camera + scores go to <strong>YouTube</strong> via our relay (Docker deploy).
-      </p>
-
-      <div class="card phone-hero-card">
-        <h2>Match day (3 taps)</h2>
-        <ol class="obs-steps phone-flow-steps">
-          <li><strong>Setup</strong> (once) — YouTube stream key</li>
-          <li><strong>Go Live</strong> — select game (or demo)</li>
-          <li>Tap <strong>Go Live</strong> — phone streams to YouTube with scores</li>
-        </ol>
-        <div class="row-actions">
-          <a class="btn btn-live" href="#/go-live" style="min-width:160px;font-size:1.05rem">Go Live</a>
-          <a class="btn ${hasKey ? "btn-ghost" : "btn-primary"}" href="#/setup">${hasKey ? "Setup ✓" : "Setup stream key"}</a>
-        </div>
-        <p class="muted" style="margin:12px 0 0;font-size:0.85rem">
-          Stream key: ${hasKey ? `<strong class="mono">${esc(keyMask)}</strong> saved on this phone` : "<strong>not set yet</strong> — one-time in Setup"}
-        </p>
-      </div>
-
-      <div class="card">
-        <h2>Quick select demo</h2>
-        <p class="muted" style="margin:0 0 8px;font-size:0.9rem">
-          ${esc(demo?.homeTeam || "LPCC")} vs ${esc(demo?.awayTeam || "Brailsford")} ·
-          <span style="color:var(--accent);font-weight:700">${esc(demo?.homeScore || "")} · ${esc(demo?.awayScore || "")}</span>
-        </p>
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <a class="btn btn-ghost" href="#/go-live">Then Go Live →</a>
-        </div>
-        <p class="muted" id="demo-selected-label" style="margin:10px 0 0;font-size:0.85rem">
-          ${demoActive ? "✓ Demo selected" : "Optional — or pick on Go Live"}
-        </p>
-      </div>
-
-      <details class="card advanced-details">
-        <summary>Advanced: OBS on a PC</summary>
-        <p class="muted" style="margin:10px 0 12px">Only if you stream from a laptop, not the one-phone flow.</p>
-        <div class="row-actions">
-          <a class="btn btn-sm" href="#/obs">OBS → YouTube</a>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-overlay">Copy Browser Source URL</button>
-        </div>
-      </details>
-    `;
-
-    document.getElementById("btn-select-demo")?.addEventListener("click", () => {
-      if (!selectDemoMatch()) return;
-      const label = document.getElementById("demo-selected-label");
-      if (label) label.textContent = "✓ Demo selected";
-      toast("Demo match selected — open Go Live");
-    });
-
-    document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
-      copyText(obsBrowserSourceUrl(), "OBS Browser Source URL copied");
-    });
-
-  }
-
-  function viewSetup() {
-    setOverlayMode(false);
-    setNav("setup");
-    const s = SWHub.loadSettings();
-    const hasKey = !!(s.youtubeStreamKey || "").trim();
-
-    main().innerHTML = `
-      <h1>Setup <span class="muted" style="font-size:0.9rem;font-weight:600">(once per phone)</span></h1>
-      <p class="lead">Save your YouTube <strong>stream key</strong> here once. Match days only need: pick game → Go Live.</p>
-
-      <form class="card" id="setup-form">
-        <div class="field">
-          <label for="youtubeStreamKey">YouTube stream key ${hasKey ? "✓ saved" : ""}</label>
-          <input id="youtubeStreamKey" name="youtubeStreamKey" type="password" autocomplete="off" value="${escAttr(SWHub.looksLikeUrlNotStreamKey?.(s.youtubeStreamKey) ? "" : s.youtubeStreamKey)}" placeholder="ab12-cd34-ef56-gh78" />
-          <p class="hint">
-            Studio → Create → <strong>Go live</strong> → <strong>Stream</strong> → copy <strong>Stream key</strong> only
-            (looks like <span class="mono">xxxx-xxxx-xxxx-xxxx</span>).
-            <strong>Not</strong> the page URL, <strong>not</strong> the video ID.
-            Same key each week unless you reset it.
-          </p>
-        </div>
-        <div class="field">
-          <label for="clubLabel">Club name on graphics</label>
-          <input id="clubLabel" name="clubLabel" type="text" value="${escAttr(s.clubLabel)}" placeholder="Lullington Park CC" />
-        </div>
-        <div class="field">
-          <label for="hubUrl">Score hub URL</label>
-          <input id="hubUrl" name="hubUrl" type="url" value="${escAttr(s.hubUrl)}" placeholder="${escAttr(SWHub.DEFAULT_HUB)}" />
-          <p class="hint">Default Cricket Local hub — leave as-is unless you know you need to change it.</p>
-        </div>
-        <div class="field">
-          <label for="youtubeLiveFeedUrl">Live video feed (channel or video)</label>
-          <input id="youtubeLiveFeedUrl" name="youtubeLiveFeedUrl" type="url" value="${escAttr(s.youtubeLiveFeedUrl || SWHub.DEFAULT_LIVE_FEED)}" placeholder="https://www.youtube.com/@LullingtonLive/live" />
-          <p class="hint">Default: club channel live — <span class="mono">@LullingtonLive/live</span>. This is what Watch shows.</p>
-        </div>
-        <div class="field">
-          <label for="youtubeVideoId">Specific video ID (optional override)</label>
-          <input id="youtubeVideoId" name="youtubeVideoId" type="text" value="${escAttr(s.youtubeVideoId)}" placeholder="leave blank to use channel live" />
-          <p class="hint">Only if you want one fixed stream (e.g. <span class="mono">Ey5s9LF958M</span>). Paste full link OK — we extract the ID.</p>
-        </div>
-        <div class="field">
-          <label for="streamRelayUrl">Stream relay URL — leave blank</label>
-          <input id="streamRelayUrl" name="streamRelayUrl" type="url" value="${escAttr(isBadRelay(s.streamRelayUrl) ? "" : s.streamRelayUrl || "")}" placeholder="Leave blank if using scorers-window-live.onrender.com" />
-          <p class="hint" style="color:${isBadRelay(s.streamRelayUrl) ? "var(--warn)" : "var(--muted)"}">
-            <strong>Not</strong> a YouTube Studio link. Leave empty when the phone is on
-            <span class="mono">https://scorers-window-live.onrender.com</span>.
-            ${isBadRelay(s.streamRelayUrl) ? " (We cleared a YouTube URL that was saved here.)" : ""}
-          </p>
-        </div>
-        <div class="row-actions">
-          <button type="submit" class="btn btn-primary">Save</button>
-          <a class="btn btn-live" href="#/go-live">Go Live →</a>
-          <button type="button" class="btn btn-ghost" id="btn-test-hub">Test hub</button>
-          <button type="button" class="btn btn-ghost" id="btn-test-relay">Test YouTube relay</button>
-        </div>
-      </form>
-
-      <div class="card" id="hub-test-result" hidden></div>
-    `;
-
-    // One-time cleanup if user pasted YouTube into relay field
-    if (isBadRelay(s.streamRelayUrl)) {
-      SWHub.saveSettings({ streamRelayUrl: "" });
-    }
-
-    document.getElementById("setup-form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      let relay = String(fd.get("streamRelayUrl") || "").trim();
-      if (isBadRelay(relay)) {
-        toast("Stream relay cannot be a YouTube link — leave it blank");
-        relay = "";
-      }
-      let videoId = String(fd.get("youtubeVideoId") || "").trim();
-      const liveFeed = String(fd.get("youtubeLiveFeedUrl") || "").trim() || SWHub.DEFAULT_LIVE_FEED;
-      const parsedVid = SWHub.parseYouTubeInput?.(videoId);
-      if (parsedVid?.type === "video") videoId = parsedVid.id;
-      else if (parsedVid?.type === "channel") videoId = "";
-      let streamKey = String(fd.get("youtubeStreamKey") || "").trim();
-      if (SWHub.looksLikeUrlNotStreamKey?.(streamKey)) {
-        toast("That was a YouTube web link — paste the Stream KEY only (with dashes)");
-        streamKey = "";
-      } else if (streamKey && !SWHub.isValidStreamKeyFormat?.(streamKey)) {
-        toast("Stream key looks invalid — copy again from Studio → Stream");
-        streamKey = "";
-      }
-      const parsedFeed = SWHub.parseYouTubeInput?.(liveFeed);
-      SWHub.saveSettings({
-        hubUrl: String(fd.get("hubUrl") || "").trim() || SWHub.DEFAULT_HUB,
-        clubLabel: String(fd.get("clubLabel") || "").trim(),
-        youtubeStreamKey: streamKey,
-        youtubeVideoId: videoId,
-        youtubeLiveFeedUrl: parsedFeed?.watchUrl || liveFeed,
-        youtubeChannelHandle: parsedFeed?.handle || SWHub.DEFAULT_CHANNEL_HANDLE,
-        streamRelayUrl: relay,
-      });
-      toast("Saved — live feed set for Watch");
-      refreshHubStatus();
-      viewSetup();
-    });
-
-    document.getElementById("btn-test-hub").addEventListener("click", async () => {
-      const input = document.getElementById("hubUrl");
-      if (input?.value) SWHub.saveSettings({ hubUrl: input.value.trim() });
-      const box = document.getElementById("hub-test-result");
-      box.hidden = false;
-      box.innerHTML = `<p class="muted">Testing…</p>`;
-      try {
-        const data = await SWHub.fetchHub();
-        box.innerHTML = `
-          <h2>Hub OK</h2>
-          <p>Live matches: <strong>${data.liveCount ?? data.matches?.length ?? 0}</strong></p>
-        `;
-        refreshHubStatus();
-      } catch (err) {
-        box.innerHTML = `<h2>Hub error</h2><p class="muted">${esc(err.message || err)}</p>`;
-      }
-    });
-
-    document.getElementById("btn-test-relay")?.addEventListener("click", async () => {
-      const input = document.getElementById("streamRelayUrl");
-      let relay = (input?.value || "").trim();
-      if (isBadRelay(relay)) {
-        relay = "";
-        if (input) input.value = "";
-        toast("Cleared YouTube URL from relay field");
-      }
-      SWHub.saveSettings({ streamRelayUrl: relay });
-      const box = document.getElementById("hub-test-result");
-      box.hidden = false;
-      box.innerHTML = `<p class="muted">Testing relay…</p>`;
-      try {
-        const st = await SWStream.probeRelay();
-        const ready = !!(st.ffmpeg || st.youtubeRelay);
-        box.innerHTML = `
-          <h2>YouTube relay</h2>
-          <p>ffmpeg: <strong>${ready ? "yes" : "no"}</strong></p>
-          <p>YouTube push: <strong>${ready ? "ready" : "not available"}</strong></p>
-          ${st.message ? `<p class="muted">${esc(st.message)}</p>` : ""}
-          ${st.hint ? `<p class="muted">${esc(st.hint)}</p>` : ""}
-          ${st.probed ? `<p class="mono muted" style="font-size:0.75rem">Probed: ${esc(st.probed)}</p>` : ""}
-          <p class="muted mono" style="font-size:0.75rem">${esc(JSON.stringify(st).slice(0, 320))}</p>
-          ${
-            !ready
-              ? `<p style="margin-top:10px"><a class="btn btn-primary" href="https://scorers-window-live.onrender.com/#/setup">Open Docker app (correct host)</a></p>`
-              : `<p class="muted" style="margin-top:10px">OK — use <strong>Go Live</strong> on this same host.</p>`
-          }
-        `;
-      } catch (err) {
-        box.innerHTML = `<h2>Relay error</h2><p class="muted">${esc(err.message || err)}</p>`;
-      }
-    });
-  }
-
-  function isBadRelay(url) {
-    const u = String(url || "").toLowerCase();
-    if (!u) return false;
-    return u.includes("youtube.com") || u.includes("youtu.be") || u.includes("studio.youtube");
-  }
-
-  async function viewGoLive() {
-    setOverlayMode(false);
-    setNav("go-live");
-    const s = SWHub.loadSettings();
-    const hasKey = SWStream?.hasStreamKey?.() || !!(s.youtubeStreamKey || "").trim();
-
-    main().innerHTML = `
-      <h1>Go Live</h1>
-      <p class="lead">1) Select the game &nbsp;·&nbsp; 2) Tap <strong>Go Live</strong>. Stream key is ${hasKey ? "already saved" : "<a href='#/setup'>set once in Setup</a>"}.</p>
-
-      ${
-        !hasKey
-          ? `<div class="card" style="border-color:rgba(251,191,36,0.5)">
-        <p style="margin:0 0 10px"><strong>Stream key not on this phone yet</strong></p>
-        <a class="btn btn-primary" href="#/setup">Add stream key (once)</a>
-      </div>`
-          : `<div class="card" style="padding:12px 16px">
-        <p class="muted" style="margin:0;font-size:0.9rem">Stream key <strong class="mono">${esc(SWStream?.streamKeyMasked?.() || "saved")}</strong> — ready</p>
-      </div>`
-      }
-
-      <div class="card demo-select-card">
-        <h2>Select game</h2>
-        <div class="row-actions" style="margin-bottom:12px">
-          <button type="button" class="btn btn-primary" id="btn-select-demo">Select demo match</button>
-          <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh live list</button>
-          <span class="badge badge-live" id="live-count-badge">…</span>
-        </div>
-        <p class="muted" id="demo-selected-label" style="margin:0 0 10px;font-size:0.85rem"></p>
-        <div id="match-list" class="match-list"><p class="empty">Loading…</p></div>
-      </div>
-
-      <div class="card">
-        <button type="button" class="btn btn-live" id="btn-go-live" style="width:100%;padding:16px;font-size:1.15rem">Go Live</button>
-        <p class="hint muted" id="go-live-note" style="margin-top:12px;text-align:center">
-          Opens full-screen camera with scores. Uses your saved stream key — no re-entry.
-        </p>
-        <p class="badge badge-live" id="on-air-pill" hidden style="margin-top:12px"></p>
-        <button type="button" class="btn btn-ghost" id="btn-end-live" hidden style="width:100%;margin-top:8px">End Live</button>
-        <!-- hidden cam bind target for optional pre-warm -->
-        <video id="cam" playsinline muted autoplay style="display:none"></video>
-        <div id="cam-ph" hidden></div>
-        <div id="preview-overlay" hidden></div>
-        <button type="button" id="btn-cam" hidden></button>
-        <button type="button" id="btn-select-demo-2" hidden></button>
-      </div>
-    `;
-
-    const listEl = document.getElementById("match-list");
-    const badge = document.getElementById("live-count-badge");
-    const previewOverlay = document.getElementById("preview-overlay");
-
-    function updateDemoLabel() {
-      const d = SWHub.getDemoMatch();
-      const sel = SWHub.loadSettings().selectedMatchId;
-      const on = d && (sel === d.id || SWDemo?.isDemoId?.(sel));
-      const text = on ? "✓ Demo match is selected" : "Demo not selected";
-      document.querySelectorAll("#demo-selected-label").forEach((el) => {
-        el.textContent = text;
-      });
-    }
-
-    function onSelectDemo() {
-      if (!selectDemoMatch()) return;
-      updateDemoLabel();
-      toast("Demo match selected");
-      paintMatches();
-      refreshOverlayPreview();
-    }
-
-    async function paintMatches() {
-      try {
-        const { list, message, liveCount, usingDemoOnly, hubError } = await loadMatches();
-        badge.textContent = usingDemoOnly ? "demo" : `${liveCount} live`;
-        const selectedId = SWHub.loadSettings().selectedMatchId;
-        updateDemoLabel();
-
-        if (!list.length) {
-          listEl.innerHTML = `<p class="empty">${esc(message || "No matches.")}</p>
-            <button type="button" class="btn btn-primary" id="btn-select-demo-empty" style="width:100%;margin-top:10px">Select demo match</button>`;
-          document.getElementById("btn-select-demo-empty")?.addEventListener("click", onSelectDemo);
-          SWOverlay.mount(previewOverlay, null, { compact: true, brand: s.clubLabel || "Scorers Window" });
-          return;
-        }
-
-        listEl.innerHTML =
-          (usingDemoOnly || hubError
-            ? `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">${hubError ? "Hub offline — " : "No live hub matches — "}use <strong>Select demo match</strong> or tap the DEMO row.</p>`
-            : `<p class="muted" style="margin:0 0 10px;font-size:0.85rem">Tap a row to select, or use <strong>Select demo match</strong>.</p>`) +
-          list
-            .map((m) => {
-              const sel = m.id === selectedId ? " selected" : "";
-              const tag = m.demo ? "DEMO" : m.live ? "LIVE" : m.completed ? "RESULT" : "MATCH";
-              const selectLabel = m.id === selectedId ? "Selected" : m.demo ? "Select demo" : "Select";
-              return `
-              <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site)}" data-demo="${m.demo ? "1" : "0"}">
-                <span class="teams">${esc(m.homeTeam)} vs ${esc(m.awayTeam)}</span>
-                <span class="scores">${esc(m.homeScore)} · ${esc(m.awayScore)}</span>
-                <span class="meta"><span class="badge ${m.demo ? "" : "badge-live"}" style="${m.demo ? "background:rgba(251,191,36,0.2);color:#fde68a" : ""}">${tag}</span>
-                  ${esc(m.date || m.status || "")} · #${esc(m.id)} · <strong>${selectLabel}</strong></span>
-              </button>`;
-            })
-            .join("");
-
-        listEl.querySelectorAll(".match-item").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const id = btn.getAttribute("data-id");
-            const isDemo = btn.getAttribute("data-demo") === "1";
-            if (isDemo) {
-              selectDemoMatch();
-            } else {
-              SWHub.saveSettings({
-                selectedMatchId: id,
-                selectedSite: btn.getAttribute("data-site") || "",
-              });
-            }
-            toast(isDemo ? "Demo match selected" : "Match selected");
-            paintMatches();
-            refreshOverlayPreview();
-          });
-        });
-
-        await refreshOverlayPreview();
-      } catch (e) {
-        const demo = SWHub.getDemoMatch();
-        badge.textContent = "demo";
-        listEl.innerHTML = `
-          <p class="muted" style="margin:0 0 10px;font-size:0.85rem">Could not load hub. (${esc(e.message || e)})</p>
-          <button type="button" class="btn btn-primary" id="btn-select-demo-err" style="width:100%;margin-bottom:10px">Select demo match</button>
-          ${
-            demo
-              ? `<button type="button" class="match-item" data-id="${escAttr(demo.id)}" data-site="${escAttr(demo.site)}" data-demo="1">
-              <span class="teams">${esc(demo.homeTeam)} vs ${esc(demo.awayTeam)}</span>
-              <span class="scores">${esc(demo.homeScore)} · ${esc(demo.awayScore)}</span>
-              <span class="meta">DEMO · ${esc(demo.date)} · #${esc(demo.id)}</span>
-            </button>`
-              : ""
-          }`;
-        document.getElementById("btn-select-demo-err")?.addEventListener("click", onSelectDemo);
-        listEl.querySelector(".match-item")?.addEventListener("click", onSelectDemo);
-      }
-    }
-
-    async function refreshOverlayPreview() {
-      const m = await resolveActiveMatch();
-      SWOverlay.mount(previewOverlay, m, {
-        compact: true,
-        brand: m?.demo ? "DEMO · LPCC" : SWHub.loadSettings().clubLabel || "Scorers Window",
-      });
-    }
-
-    document.getElementById("btn-refresh-matches").addEventListener("click", () => paintMatches());
-    document.getElementById("btn-select-demo")?.addEventListener("click", onSelectDemo);
-    document.getElementById("btn-select-demo-2")?.addEventListener("click", onSelectDemo);
-    updateDemoLabel();
-
-    document.getElementById("btn-cam").addEventListener("click", async () => {
-      try {
-        await startCamera();
-        toast("Camera on");
-        updateOnAirUi();
-      } catch (e) {
-        toast("Camera denied or unavailable");
-        console.warn(e);
-      }
-    });
-
-    document.getElementById("btn-go-live").addEventListener("click", async () => {
-      const set = SWHub.loadSettings();
-      if (!set.selectedMatchId && !cachedMatches[0]) {
-        // auto demo so one-tap still works
-        selectDemoMatch();
-      } else if (!set.selectedMatchId && cachedMatches[0]) {
-        SWHub.saveSettings({
-          selectedMatchId: cachedMatches[0].id,
-          selectedSite: cachedMatches[0].site || "",
-        });
-      }
-
-      if (!SWStream?.hasStreamKey?.() && !(SWHub.loadSettings().youtubeStreamKey || "").trim()) {
-        toast("Add stream key once in Setup first");
-        location.hash = "#/setup";
-        return;
-      }
-
-      try {
-        await startCamera();
-      } catch (e) {
-        toast("Allow camera access, then try again");
-        console.warn(e);
-        return;
-      }
-
-      onAir = true;
-      sessionStorage.setItem("sw-on-air", "1");
-      toast("Going live…");
-      location.hash = "#/live";
-    });
-
-    document.getElementById("btn-end-live")?.addEventListener("click", () => {
-      onAir = false;
-      sessionStorage.removeItem("sw-on-air");
-      stopCamera();
-      updateOnAirUi();
-      toast("Live ended — camera off");
-    });
-
-    // Re-bind camera if we still hold a stream (e.g. soft re-entry)
-    bindCameraToVideo();
-    updateOnAirUi();
-
-    await paintMatches();
-    stopActivePoll();
-    stopPoll = SWHub.poll(async () => {
-      if (route().path !== "/go-live") return;
-      // Only refresh match list + score strip — never tear down the <video>
-      await paintMatches();
-      bindCameraToVideo();
-      updateOnAirUi();
-    }, SWHub.POLL_MS);
-  }
-
-  /**
-   * Full-screen phone broadcast: camera + score (composite feed for publish).
-   * URL: #/live — reached from Go Live one-tap flow.
-   */
-  async function viewLiveCam() {
-    setOverlayMode(true, { withCamera: true });
-    setNav("go-live");
-    onAir = true;
-    sessionStorage.setItem("sw-on-air", "1");
-
-    const hasKey = SWStream?.hasStreamKey?.();
-
-    main().innerHTML = `
-      <div class="live-stage" id="live-stage">
-        <video id="cam" class="live-stage-video" playsinline muted autoplay webkit-playsinline></video>
-        <div class="live-stage-ph" id="cam-ph">
-          <strong>Starting camera…</strong>
-          <span class="muted" style="color:#86efac">Allow camera if prompted</span>
-          <button type="button" class="btn btn-primary" id="btn-cam-retry">Enable camera</button>
-        </div>
-        <div class="live-stage-chrome">
-          <span class="live-pill" id="live-pill">Starting…</span>
-          <div class="chrome-actions">
-            <button type="button" class="btn btn-sm" id="btn-flip-cam">Flip</button>
-            <button type="button" class="btn btn-sm btn-ghost" id="btn-end-live-stage">End</button>
-          </div>
-        </div>
-        <div class="live-stage-score">
-          <div class="overlay-root" id="overlay-root"></div>
-        </div>
-        <p class="live-stream-status" id="live-stream-status"></p>
-      </div>
-    `;
-
-    const root = document.getElementById("overlay-root");
-    const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
-    const statusEl = document.getElementById("live-stream-status");
-    let facing = "environment";
-
-    function setStatus(text) {
-      if (statusEl) statusEl.textContent = text || "";
-    }
-
-    async function startFacing(mode) {
-      facing = mode || facing;
-      SWStream?.stopComposite?.();
-      stopCamera();
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: facing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: true,
-      });
-      bindCameraToVideo();
-      const ph = document.getElementById("cam-ph");
-      if (ph) ph.hidden = true;
-      await startCompositePipeline();
-    }
-
-    async function startCompositePipeline() {
-      const video = document.getElementById("cam");
-      const m = (await resolveActiveMatch()) || SWHub.getDemoMatch();
-      // Wait for video dimensions
-      await new Promise((r) => {
-        if (video.videoWidth) return r();
-        video.onloadedmetadata = () => r();
-        setTimeout(r, 800);
-      });
-      if (SWStream && mediaStream && video) {
-        SWStream.startComposite(video, mediaStream, m);
-        const pub = await SWStream.beginPublish({
-          onStatus: (st) => {
-            const pill = document.getElementById("live-pill");
-            if (pill) {
-              if (st.state === "live") pill.textContent = "ON AIR · YouTube";
-              else if (st.state === "connecting") pill.textContent = "Connecting…";
-              else if (st.state === "local") pill.textContent = "ON AIR · phone";
-              else if (st.state === "error") pill.textContent = "ON AIR · local";
-              else pill.textContent = "ON AIR";
-            }
-            if (st.message) setStatus(st.message);
-          },
-        });
-        const pill = document.getElementById("live-pill");
-        if (pill) {
-          if (pub.mode === "youtube") pill.textContent = "ON AIR · YouTube";
-          else if (pub.ok) pill.textContent = "ON AIR · phone";
-          else pill.textContent = "ON AIR · local";
-        }
-        setStatus(
-          pub.message ||
-            (hasKey
-              ? "Camera + scores · stream key ready"
-              : "Camera + scores · add stream key in Setup for YouTube")
-        );
-      }
-    }
-
-    async function tick() {
-      try {
-        let m = await resolveActiveMatch();
-        if (!m) m = SWHub.getDemoMatch();
-        SWOverlay.mount(root, m, {
-          brand: m?.demo ? "DEMO · LPCC" : brand,
-        });
-        SWStream?.updateMatch?.(m);
-      } catch (e) {
-        const demo = SWHub.getDemoMatch();
-        SWOverlay.mount(root, demo, { brand: "DEMO · LPCC", extra: e.message });
-        SWStream?.updateMatch?.(demo);
-      }
-    }
-
-    document.getElementById("btn-cam-retry")?.addEventListener("click", async () => {
-      try {
-        await startFacing(facing);
-        toast("Camera on");
-      } catch (e) {
-        toast("Camera denied or unavailable");
-        console.warn(e);
-      }
-    });
-
-    document.getElementById("btn-flip-cam")?.addEventListener("click", async () => {
-      try {
-        await startFacing(facing === "environment" ? "user" : "environment");
-      } catch (e) {
-        toast("Could not flip camera");
-      }
-    });
-
-    document.getElementById("btn-end-live-stage")?.addEventListener("click", () => {
-      onAir = false;
-      sessionStorage.removeItem("sw-on-air");
-      SWStream?.endPublish?.();
-      stopCamera();
-      location.hash = "#/go-live";
-    });
-
-    try {
-      if (cameraIsLive()) {
-        bindCameraToVideo();
-        document.getElementById("cam-ph").hidden = true;
-        await startCompositePipeline();
-      } else {
-        await startFacing("environment");
-      }
-    } catch (e) {
-      console.warn(e);
-      setStatus("Tap Enable camera");
-      toast("Allow camera to go live");
-    }
-
-    await tick();
-    stopActivePoll();
-    stopPoll = SWHub.poll(async () => {
-      if (route().path !== "/live") return;
-      await tick();
-      bindCameraToVideo();
-    }, 10_000);
-  }
-
-  /**
-   * Guided OBS / Moblin → YouTube setup so overlay is burned into the live (and VOD) feed.
-   */
-  function viewObsGuide() {
-    setOverlayMode(false);
-    setNav("obs");
-    const s = SWHub.loadSettings();
-    const obsUrl = obsBrowserSourceUrl();
-    const hasKey = !!(s.youtubeStreamKey || "").trim();
-    const matchOk = !!(s.selectedMatchId || SWHub.getDemoMatch());
-
-    // Ensure a match is selected so the browser source has scores immediately
-    if (!s.selectedMatchId) selectDemoMatch();
-
-    main().innerHTML = `
-      <h1>Scoreboard on stream</h1>
-      <p class="lead">
-        Your screenshot shows Moblin’s <strong>Practice scoreboard</strong> (tiny bar + “Practice scoreboard”).
-        That is <em>not</em> Scorers Window. Use a <strong>Browser widget</strong> with our overlay URL instead.
-      </p>
-
-      <div class="card demo-select-card">
-        <h2>Moblin (phone) — fix the overlay</h2>
-        <ol class="obs-steps">
-          <li><strong>Remove</strong> the Moblin Scoreboard widget that says “Practice scoreboard” (or turn practice off).</li>
-          <li>Add a <strong>Browser</strong> widget (not Scoreboard).</li>
-          <li>Paste this URL into the browser widget:</li>
-        </ol>
-        <p class="mono obs-url-box" id="obs-url-box">${esc(obsUrl)}</p>
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-copy-obs-url">Copy overlay URL</button>
-          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview</a>
-          <button type="button" class="btn btn-sm" id="btn-obs-demo">Select demo match</button>
-        </div>
-        <ol class="obs-steps" start="4" style="margin-top:14px">
-          <li>Size about <strong>1920×400</strong> (or full width × ~400 high) and pin it to the <strong>bottom</strong> of the scene.</li>
-          <li>Enable transparent background if Moblin has that option.</li>
-          <li>In Scorers Window (this site) first: <strong>Select demo match</strong> or a live game so the URL has scores.</li>
-          <li>“Live stream offline” is separate — that means Moblin is not connected to YouTube yet (stream key / Go Live in Studio).</li>
-        </ol>
-        <p class="muted" style="margin:12px 0 0;font-size:0.85rem">
-          Match selected: <strong id="obs-match-label">${esc(SWHub.loadSettings().selectedMatchId || "demo")}</strong>
-          ${matchOk ? " · ready" : ""}
-        </p>
-      </div>
-
-      <div class="card">
-        <h2>OBS (computer) — same URL</h2>
-        <p class="muted" style="margin:0 0 8px">Paste into OBS as a <strong>Browser</strong> source. Transparent page — scores only.</p>
-        <div class="row-actions">
-          <button type="button" class="btn btn-primary" id="btn-copy-obs-url-2">Copy URL</button>
-          <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>2. OBS scene layout</h2>
-        <ol class="obs-steps">
-          <li>Open <strong>OBS Studio</strong> (or Streamlabs).</li>
-          <li>Add your <strong>camera</strong> (or phone capture / NDI) as a video source — full canvas.</li>
-          <li><strong>+</strong> → <strong>Browser</strong> → Create new → name it <span class="mono">Scorers Overlay</span>.</li>
-          <li>Paste the URL from step 1.</li>
-          <li>Set size: <strong>Width 1920</strong> · <strong>Height 1080</strong> (or your canvas size).</li>
-          <li>Tick <strong>Shutdown source when not visible</strong> = <em>off</em> (keeps scores updating).</li>
-          <li>Tick <strong>Refresh browser when scene becomes active</strong> = <em>on</em>.</li>
-          <li>Custom CSS (optional, clears white flash):
-            <pre class="obs-pre" id="obs-css">body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }</pre>
-            <button type="button" class="btn btn-sm btn-ghost" id="btn-copy-obs-css">Copy CSS</button>
-          </li>
-          <li>Drag the browser source to the <strong>top</strong> of the Sources list (above the camera).</li>
-          <li>Resize so the score bar sits along the bottom; leave the rest of the frame empty (transparent).</li>
-        </ol>
-      </div>
-
-      <div class="card">
-        <h2>3. YouTube stream key</h2>
-        <ol class="obs-steps">
-          <li>YouTube Studio → <strong>Create</strong> → <strong>Go live</strong> → <strong>Stream</strong>.</li>
-          <li>Copy <strong>Stream key</strong>.</li>
-          <li>OBS → <strong>Settings</strong> → <strong>Stream</strong> → Service: <strong>YouTube - RTMPS</strong> → paste key
-            ${hasKey ? "(also saved in our Setup)" : "(or save it in Scorers Window Setup)"}.
-          </li>
-          <li>Optional: save the key in <a href="#/setup">Setup</a> for your notes (OBS still needs it in Stream settings).</li>
-        </ol>
-        <div class="row-actions">
-          <a class="btn" href="#/setup">Open Setup</a>
-          <a class="btn btn-ghost" href="https://studio.youtube.com" target="_blank" rel="noopener">YouTube Studio</a>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>4. Go live checklist</h2>
-        <ul class="checklist">
-          <li class="done"><span class="dot"></span><span>Browser source URL copied</span></li>
-          <li class="${hasKey ? "done" : ""}"><span class="dot"></span><span>YouTube stream key in OBS${hasKey ? "" : " — add in YT Studio / Setup"}</span></li>
-          <li class="done"><span class="dot"></span><span>Camera under overlay in OBS</span></li>
-          <li class=""><span class="dot"></span><span>In OBS: <strong>Start Streaming</strong></span></li>
-          <li class=""><span class="dot"></span><span>Confirm on YouTube Studio preview: scores visible on the picture</span></li>
-        </ul>
-        <p class="muted" style="margin:12px 0 0;font-size:0.9rem">
-          Once it’s in the encode, <strong>live and watch-later</strong> on YouTube both show the overlay.
-          Fans use the normal YouTube live link.
-        </p>
-      </div>
-    `;
-
-    const copyObs = () => copyText(obsBrowserSourceUrl(), "Overlay URL copied — paste into Moblin Browser widget or OBS");
-    document.getElementById("btn-copy-obs-url")?.addEventListener("click", copyObs);
-    document.getElementById("btn-copy-obs-url-2")?.addEventListener("click", copyObs);
-    document.getElementById("btn-copy-obs-css")?.addEventListener("click", () => {
-      copyText(
-        "body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }",
-        "OBS Custom CSS copied"
-      );
-    });
-    document.getElementById("btn-obs-demo")?.addEventListener("click", () => {
-      selectDemoMatch();
-      const el = document.getElementById("obs-match-label");
-      if (el) el.textContent = SWHub.getDemoMatch()?.id || "demo";
-      toast("Demo match selected for overlay");
-    });
-  }
-
-  /**
-   * OBS / Streamlabs browser source — transparent score graphics only (no camera).
-   * URL: #/overlay?obs=1  — clean capture for YouTube burn-in.
-   * Phone camera + score (local only): #/live
-   */
-  async function viewOverlay() {
-    setOverlayMode(true, { withCamera: false });
-    setNav("overlay");
-    const { params } = route();
-    // Default clean for OBS-friendly captures; ?tip=1 shows the help banner
-    const showTip = params.get("tip") === "1";
-    const obsClean = !showTip;
-
-    if (obsClean) {
-      document.documentElement.classList.add("obs-capture");
-    } else {
-      document.documentElement.classList.remove("obs-capture");
-    }
-
-    // Always have a match so OBS never opens blank
-    const s0 = SWHub.loadSettings();
-    if (!s0.selectedMatchId) selectDemoMatch();
-
-    main().innerHTML = `
-      ${
-        showTip
-          ? `<div class="overlay-no-cam-tip" id="overlay-no-cam-tip" role="note">
-        <strong>OBS score layer (no camera here)</strong>
-        <span>Use this page as a Browser Source in OBS over your camera, then stream to YouTube.</span>
-        <a class="btn btn-primary btn-sm" href="#/obs">OBS → YouTube guide</a>
-        <a class="btn btn-live btn-sm" href="#/live">Phone Live cam</a>
-      </div>`
-          : ""
-      }
-      <div class="overlay-root" id="overlay-root"></div>
-    `;
-    const root = document.getElementById("overlay-root");
-    const brand = SWHub.loadSettings().clubLabel || "Scorers Window";
-
-    async function tick() {
-      try {
-        let m = await resolveActiveMatch();
-        if (!m) m = SWHub.getDemoMatch();
-        SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
-        if (m?.completed) root.dataset.completed = "1";
-      } catch (e) {
-        const demo = SWHub.getDemoMatch();
-        if (demo) SWOverlay.mount(root, demo, { brand: "DEMO · LPCC" });
-        else SWOverlay.mount(root, null, { brand, extra: e.message || "hub error" });
-      }
-    }
-
-    await tick();
-    stopActivePoll();
-    stopPoll = SWHub.poll(tick, 10_000);
-  }
-
-  function viewNotFound() {
-    setOverlayMode(false);
-    setNav("");
-    main().innerHTML = `<h1>Not found</h1><p class="lead"><a href="#/">Back home</a></p>`;
-  }
-
-  /* ——— helpers ——— */
 
   function esc(s) {
     return String(s ?? "")
@@ -1038,67 +72,12 @@
     return esc(s).replace(/'/g, "&#39;");
   }
 
-  function shortUrl(u) {
-    return String(u || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-  }
-
-  /** Clean browser-source URL for OBS (no tip chrome) */
-  function obsBrowserSourceUrl() {
-    // Prefer Docker host when opened from static or wrong origin
-    const host = location.hostname.includes("scorers-window")
-      ? location.origin
-      : "https://scorers-window-live.onrender.com";
-    const origin = location.hostname.includes("onrender.com") || location.hostname === "localhost"
-      ? location.origin
-      : host;
+  function overlayUrl() {
+    const origin =
+      location.hostname.includes("onrender.com") || location.hostname === "localhost"
+        ? location.origin
+        : "https://scorers-window-live.onrender.com";
     return `${origin}/#/overlay?obs=1`;
-  }
-
-  /** Public YouTube watch/live URL — channel live or specific video */
-  function youtubeWatchUrl(videoId) {
-    if (videoId) {
-      const p = SWHub.parseYouTubeInput?.(videoId);
-      if (p?.watchUrl) return p.watchUrl;
-    }
-    const feed = SWHub.getLiveFeed?.();
-    if (feed?.watchUrl) return feed.watchUrl;
-    const s = SWHub.loadSettings();
-    if (s.youtubeVideoId) {
-      const p = SWHub.parseYouTubeInput?.(s.youtubeVideoId);
-      if (p?.watchUrl) return p.watchUrl;
-    }
-    return s.youtubeLiveFeedUrl || SWHub.DEFAULT_LIVE_FEED || "https://www.youtube.com/@LullingtonLive/live";
-  }
-
-  function openYouTubeWatch(videoId) {
-    const url = youtubeWatchUrl(videoId);
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
-  function youtubeEmbedHtml(embedUrl, watchUrl) {
-    const w = watchUrl || "https://www.youtube.com/@LullingtonLive/live";
-    if (embedUrl) {
-      return `<div class="yt-embed">
-        <iframe
-          src="${escAttr(embedUrl)}"
-          title="Lullington Live"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowfullscreen
-          referrerpolicy="strict-origin-when-cross-origin"
-        ></iframe>
-      </div>
-      <p class="muted" style="margin:8px 0 0;font-size:0.8rem;text-align:center">
-        <a href="${escAttr(w)}" target="_blank" rel="noopener">If video is blank, open on YouTube ↗</a>
-      </p>`;
-    }
-    return `<div class="watch-video-placeholder card yt-fallback">
-      <p style="margin:0 0 8px;font-weight:700">Lullington Live</p>
-      <p class="muted" style="margin:0 0 12px;font-size:0.9rem">
-        The stream is live on YouTube. Tap below to watch (embed unavailable right now).
-      </p>
-      <a class="btn btn-live" href="${escAttr(w)}" target="_blank" rel="noopener">Watch on YouTube ↗</a>
-      <p class="mono muted" style="margin:12px 0 0;font-size:0.75rem;word-break:break-all">${esc(w)}</p>
-    </div>`;
   }
 
   async function copyText(text, okMsg) {
@@ -1110,48 +89,355 @@
     }
   }
 
-  /* ——— router ——— */
+  async function refreshHubStatus() {
+    const el = hubStatusEl();
+    if (!el) return;
+    try {
+      const s = await SWHub.fetchStatus();
+      const n = s.liveNow ?? s.liveCount ?? 0;
+      el.textContent = `hub live ${n}`;
+      el.className = "hub-status ok";
+    } catch {
+      el.textContent = "hub —";
+      el.className = "hub-status";
+    }
+  }
+
+  async function fetchYoutubeLiveStatus() {
+    try {
+      const res = await fetch(
+        `${location.origin}/api/youtube/channel-live?handle=${encodeURIComponent(CHANNEL_HANDLE)}&_=${Date.now()}`,
+        { cache: "no-store" }
+      );
+      const j = await res.json();
+      // isLive: prefer real video id on air; channelId alone is not enough
+      const isLive = !!(j.videoId || (j.isLive && j.videoId));
+      // Also treat videoId present as live
+      const live = !!(j.videoId);
+      ytLiveStatus = {
+        isLive: live,
+        videoId: j.videoId || null,
+        channelId: j.channelId || CHANNEL_ID,
+        title: j.title || "",
+        embedUrl:
+          j.videoId
+            ? `https://www.youtube.com/embed/${j.videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
+            : j.channelId || CHANNEL_ID
+              ? `https://www.youtube.com/embed/live_stream?channel=${j.channelId || CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`
+              : "",
+        watchUrl: WATCH_PAGE,
+      };
+      return ytLiveStatus;
+    } catch (e) {
+      ytLiveStatus = {
+        isLive: false,
+        videoId: null,
+        channelId: CHANNEL_ID,
+        title: "",
+        embedUrl: `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=1&playsinline=1`,
+        watchUrl: WATCH_PAGE,
+        error: e.message,
+      };
+      return ytLiveStatus;
+    }
+  }
+
+  function selectDemoMatch() {
+    const d = SWHub.getDemoMatch?.();
+    if (!d) return null;
+    SWHub.saveSettings({
+      selectedMatchId: d.id,
+      selectedSite: d.site || "https://lpcc.play-cricket.com",
+      useDemoWhenIdle: true,
+    });
+    return d;
+  }
+
+  async function loadMatches() {
+    let data = { matches: [], message: null, liveCount: 0 };
+    try {
+      data = await SWHub.fetchHub();
+    } catch (e) {
+      data = { matches: [], message: e.message || "Hub offline", liveCount: 0 };
+    }
+    const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
+    const demo = SWHub.getDemoMatch?.();
+    let list = liveList.slice();
+    if (demo && !list.some((m) => m.id === demo.id)) list = [...list, demo];
+    cachedMatches = list;
+    return { list, liveList, demo, message: data.message, liveCount: data.liveCount ?? liveList.length };
+  }
+
+  async function resolveActiveMatch() {
+    const settings = SWHub.loadSettings();
+    const { list, demo } = await loadMatches();
+    if (settings.selectedMatchId && (SWDemo?.isDemoId?.(settings.selectedMatchId) || settings.selectedMatchId === demo?.id)) {
+      return demo || SWHub.getDemoMatch();
+    }
+    if (settings.selectedMatchId) {
+      const m = list.find((x) => x.id === settings.selectedMatchId && !x.demo);
+      if (m) return m;
+    }
+    return list.find((x) => x.live && !x.demo) || demo || list[0] || null;
+  }
+
+  /* ——— Live tab ——— */
+
+  async function viewLive() {
+    setOverlayMode(false);
+    setNav("live");
+    main().classList.add("main--wide");
+
+    main().innerHTML = `
+      <div class="live-tab">
+        <h1>Live</h1>
+        <p class="lead">Lullington Live YouTube feed</p>
+
+        <button type="button" class="btn-watch-status offline" id="btn-watch-live" disabled>
+          Checking live status…
+        </button>
+
+        <div class="yt-embed live-tab-player" id="yt-player">
+          <div class="player-loading">Loading feed…</div>
+        </div>
+
+        <p class="muted" style="margin:12px 0 0;font-size:0.8rem;text-align:center">
+          <a href="${escAttr(WATCH_PAGE)}" target="_blank" rel="noopener">youtube.com/@LullingtonLive/live</a>
+        </p>
+      </div>
+    `;
+
+    const btn = document.getElementById("btn-watch-live");
+    const player = document.getElementById("yt-player");
+
+    function paintButton(st) {
+      if (!btn) return;
+      btn.disabled = false;
+      if (st?.isLive) {
+        btn.className = "btn-watch-status live";
+        btn.textContent = "Watch Live Video · LIVE";
+      } else {
+        btn.className = "btn-watch-status offline";
+        btn.textContent = "Watch Live Video · Offline";
+      }
+    }
+
+    function paintPlayer(st) {
+      if (!player) return;
+      const embed =
+        st?.embedUrl ||
+        `https://www.youtube.com/embed/live_stream?channel=${CHANNEL_ID}&autoplay=1&mute=1&playsinline=1&rel=0`;
+      const src = `${embed}${embed.includes("?") ? "&" : "?"}_=${Date.now()}`;
+      player.innerHTML = `
+        <iframe
+          src="${escAttr(src)}"
+          title="Lullington Live"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      `;
+    }
+
+    async function refreshLive() {
+      const st = await fetchYoutubeLiveStatus();
+      paintButton(st);
+      paintPlayer(st);
+    }
+
+    btn?.addEventListener("click", () => {
+      // Scroll to / focus player (already embedded); reload embed
+      paintPlayer(ytLiveStatus);
+      player?.scrollIntoView({ behavior: "smooth", block: "center" });
+      toast(ytLiveStatus?.isLive ? "Playing live feed" : "Showing channel feed (may be offline)");
+    });
+
+    await refreshLive();
+    stopActivePoll();
+    stopPoll = SWHub.poll(async () => {
+      if (route().path !== "/live" && route().path !== "/") return;
+      const st = await fetchYoutubeLiveStatus();
+      paintButton(st);
+      // Don't rebuild iframe every poll if already showing (avoids flicker)
+    }, 60000);
+  }
+
+  /* ——— Settings ——— */
+
+  async function viewSettings() {
+    setOverlayMode(false);
+    setNav("settings");
+    const s = SWHub.loadSettings();
+    const url = overlayUrl();
+
+    main().innerHTML = `
+      <div class="settings-page">
+        <h1>Settings</h1>
+        <p class="lead">Choose the fixture for the scoreboard overlay, and copy the Moblin browser URL.</p>
+
+        <div class="card">
+          <h2>Fixture for overlay</h2>
+          <p class="muted" style="margin:0 0 12px;font-size:0.85rem">
+            This match is shown on the Moblin / OBS scoreboard overlay.
+          </p>
+          <div class="row-actions" style="margin-bottom:12px">
+            <button type="button" class="btn btn-sm btn-primary" id="btn-demo">Select demo match</button>
+            <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh live list</button>
+            <span class="badge badge-live" id="match-badge">…</span>
+          </div>
+          <p class="muted" id="selected-label" style="margin:0 0 10px;font-size:0.85rem"></p>
+          <div id="match-list" class="match-list"><p class="empty">Loading…</p></div>
+        </div>
+
+        <div class="card demo-select-card">
+          <h2>Moblin overlay URL</h2>
+          <p class="muted" style="margin:0 0 8px;font-size:0.85rem">
+            In Moblin: remove Practice scoreboard → add a <strong>Browser</strong> widget → paste this URL.
+            Size about full width × 400 high, bottom of scene.
+          </p>
+          <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
+          <div class="row-actions">
+            <button type="button" class="btn btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
+            <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const listEl = document.getElementById("match-list");
+    const badge = document.getElementById("match-badge");
+    const selectedLabel = document.getElementById("selected-label");
+
+    function updateSelectedLabel() {
+      const set = SWHub.loadSettings();
+      const id = set.selectedMatchId || "";
+      const m = cachedMatches.find((x) => x.id === id) || (SWDemo?.isDemoId?.(id) ? SWHub.getDemoMatch() : null);
+      if (selectedLabel) {
+        selectedLabel.textContent = m
+          ? `Selected: ${m.homeTeam} vs ${m.awayTeam} · ${m.homeScore} · ${m.awayScore}${m.demo ? " (DEMO)" : ""}`
+          : id
+            ? `Selected match #${id}`
+            : "No fixture selected — pick demo or a live match";
+      }
+    }
+
+    async function paintMatches() {
+      try {
+        const { list, liveCount, message } = await loadMatches();
+        if (badge) badge.textContent = `${liveCount} live`;
+        updateSelectedLabel();
+        const selectedId = SWHub.loadSettings().selectedMatchId;
+
+        if (!list.length) {
+          listEl.innerHTML = `<p class="empty">${esc(message || "No matches.")}</p>`;
+          return;
+        }
+
+        listEl.innerHTML = list
+          .map((m) => {
+            const sel = m.id === selectedId ? " selected" : "";
+            const tag = m.demo ? "DEMO" : m.live ? "LIVE" : "MATCH";
+            return `
+              <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site || "")}" data-demo="${m.demo ? "1" : "0"}">
+                <span class="teams">${esc(m.homeTeam)} vs ${esc(m.awayTeam)}</span>
+                <span class="scores">${esc(m.homeScore)} · ${esc(m.awayScore)}</span>
+                <span class="meta">${tag} · #${esc(m.id)}${m.date ? " · " + esc(m.date) : ""}</span>
+              </button>`;
+          })
+          .join("");
+
+        listEl.querySelectorAll(".match-item").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const isDemo = btn.getAttribute("data-demo") === "1";
+            if (isDemo) selectDemoMatch();
+            else {
+              SWHub.saveSettings({
+                selectedMatchId: btn.getAttribute("data-id"),
+                selectedSite: btn.getAttribute("data-site") || "",
+              });
+            }
+            toast(isDemo ? "Demo fixture selected" : "Fixture selected for overlay");
+            paintMatches();
+          });
+        });
+      } catch (e) {
+        listEl.innerHTML = `<p class="empty">Could not load matches: ${esc(e.message || e)}</p>`;
+      }
+    }
+
+    document.getElementById("btn-demo")?.addEventListener("click", () => {
+      selectDemoMatch();
+      toast("Demo fixture selected");
+      paintMatches();
+    });
+    document.getElementById("btn-refresh-matches")?.addEventListener("click", () => paintMatches());
+    document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
+      copyText(overlayUrl(), "Overlay URL copied — paste into Moblin Browser widget");
+    });
+
+    if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();
+    await paintMatches();
+    stopActivePoll();
+  }
+
+  /* ——— Overlay (Moblin browser widget) ——— */
+
+  async function viewOverlay() {
+    setOverlayMode(true);
+    setNav("");
+    document.documentElement.classList.add("obs-capture");
+
+    if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();
+
+    main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
+    const root = document.getElementById("overlay-root");
+    const brand = SWHub.loadSettings().clubLabel || "Lullington Park CC";
+
+    async function tick() {
+      try {
+        let m = await resolveActiveMatch();
+        if (!m) m = SWHub.getDemoMatch();
+        SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
+      } catch (e) {
+        const demo = SWHub.getDemoMatch();
+        if (demo) SWOverlay.mount(root, demo, { brand: "DEMO · LPCC" });
+        else SWOverlay.mount(root, null, { brand, extra: e.message });
+      }
+    }
+
+    await tick();
+    stopActivePoll();
+    stopPoll = SWHub.poll(tick, 12000);
+  }
+
+  /* ——— Router ——— */
 
   async function render() {
     stopActivePoll();
-    const { path } = route();
-    document.body.classList.remove("watch-mode");
-    document.body.classList.remove("player-mode");
-    const mEl = main();
-    if (mEl) mEl.classList.remove("main--player");
+    document.body.classList.remove("watch-mode", "player-mode", "live-cam-mode", "overlay-mode");
     document.documentElement.classList.remove("obs-capture");
-    // Keep camera when moving between Go Live control room and Live cam composite
-    if (!isCameraRoute(path)) {
-      if (onAir) onAir = false;
-      sessionStorage.removeItem("sw-on-air");
-      SWStream?.endPublish?.();
-      stopCamera();
-    }
+    const m = main();
+    if (m) m.classList.remove("main--wide", "main--player", "main--overlay");
+
+    const { path } = route();
 
     try {
-      if (path === "/" || path === "") await Promise.resolve(viewHome());
-      else if (path === "/setup") viewSetup();
-      else if (path === "/go-live") await viewGoLive();
-      else if (path === "/live") await viewLiveCam();
-      else if (path === "/obs") viewObsGuide();
+      if (path === "/" || path === "" || path === "/live") await viewLive();
+      else if (path === "/settings" || path === "/setup") await viewSettings();
       else if (path === "/overlay") await viewOverlay();
-      else if (path === "/watch" || path === "/board" || path === "/player") {
-        // Removed — send old bookmarks home
-        location.hash = "#/";
-        return;
-      } else viewNotFound();
+      else {
+        // Old routes → Live
+        location.hash = "#/live";
+      }
     } catch (e) {
       console.error(e);
       main().innerHTML = `<div class="card"><h2>Error</h2><p class="muted">${esc(e.message || e)}</p></div>`;
     }
   }
 
-  window.addEventListener("hashchange", () => {
-    render();
-  });
-
+  window.addEventListener("hashchange", () => render());
   window.addEventListener("DOMContentLoaded", () => {
-    if (!location.hash) location.hash = "#/";
+    if (!location.hash || location.hash === "#/") location.hash = "#/live";
     render();
     refreshHubStatus();
     setInterval(refreshHubStatus, 60_000);

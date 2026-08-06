@@ -790,6 +790,64 @@ html.obs-capture .main.main--overlay {
   margin-bottom: 28px;
 }
 
+/* Live status button — red offline, green live */
+.btn-watch-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 64px;
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  color: #fff !important;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-watch-status.offline {
+  background: linear-gradient(180deg, #ef4444, #b91c1c);
+  border-color: #7f1d1d;
+  box-shadow: 0 8px 24px rgba(185, 28, 28, 0.35);
+}
+
+.btn-watch-status.live {
+  background: linear-gradient(180deg, #22c55e, #15803d);
+  border-color: #166534;
+  box-shadow: 0 8px 24px rgba(22, 163, 74, 0.4);
+}
+
+.btn-watch-status:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.btn-watch-status:not(:disabled):active {
+  transform: scale(0.99);
+}
+
+.live-tab {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.live-tab-player {
+  margin-top: 4px;
+}
+
+.live-tab-player.yt-embed {
+  min-height: 240px;
+}
+
+.settings-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
 .btn-watch-live {
   display: flex;
   align-items: center;

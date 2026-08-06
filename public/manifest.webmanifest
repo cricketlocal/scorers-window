@@ -1,8 +1,8 @@
 {
   "name": "Scorers Window",
   "short_name": "Scorers",
-  "description": "Club cricket live stream with Play-Cricket score overlay",
-  "start_url": "/",
+  "description": "Live YouTube feed + scoreboard overlay for Moblin",
+  "start_url": "/#/live",
   "display": "standalone",
   "background_color": "#06140d",
   "theme_color": "#0a1f14",

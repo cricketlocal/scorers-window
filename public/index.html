@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0a1f14" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="Scorers Window — phone Go Live with Play-Cricket score overlay" />
+  <meta name="description" content="Scorers Window — live feed + scoreboard overlay" />
   <title>Scorers Window</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
@@ -16,20 +16,18 @@
 <body>
   <div id="app">
     <header class="topbar" id="topbar">
-      <a href="#/" class="brand" aria-label="Scorers Window home">
+      <a href="#/live" class="brand" aria-label="Scorers Window">
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-text">Scorers Window</span>
       </a>
       <nav class="nav" aria-label="Main">
-        <a href="#/" data-nav="home">Home</a>
-        <a href="#/go-live" data-nav="go-live">Go Live</a>
-        <a href="#/setup" data-nav="setup">Setup</a>
-        <a href="#/obs" data-nav="obs" class="nav-advanced">Overlay setup</a>
+        <a href="#/live" data-nav="live">Live</a>
+        <a href="#/settings" data-nav="settings">Settings</a>
       </nav>
     </header>
     <main id="main" class="main" role="main"></main>
     <footer class="footer" id="footer">
-      <span>Phone → pick game → Go Live</span>
+      <span>Live feed + overlay</span>
       <span id="hub-status" class="hub-status">—</span>
     </footer>
   </div>
@@ -37,7 +35,6 @@
   <script src="/js/demo.js" defer></script>
   <script src="/js/hub.js" defer></script>
   <script src="/js/overlay.js" defer></script>
-  <script src="/js/stream.js" defer></script>
   <script src="/js/app.js" defer></script>
   <script>
     if ("serviceWorker" in navigator) {

@@ -1,6 +1,6 @@
 /* Scorers Window — light shell cache */
-const CACHE = "scorers-window-v26";
-const ASSETS = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/hub.js", "/js/overlay.js", "/js/demo.js", "/js/stream.js", "/manifest.webmanifest", "/icons/icon.svg"];
+const CACHE = "scorers-window-v27";
+const ASSETS = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/hub.js", "/js/overlay.js", "/js/demo.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
