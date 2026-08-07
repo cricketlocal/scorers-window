@@ -172,6 +172,44 @@
   async function resolveActiveMatch() {
     const settings = SWHub.loadSettings();
     const { list, demo } = await loadMatches();
+
+    // Prefer shared pick from phone (Live Match feed / Match Day Settings)
+    try {
+      const shared = await SWHub.fetchSharedScoreboard?.(settings.clubLabel || "Lullington Park CC");
+      if (shared?.matchId) {
+        const sid = String(shared.matchId);
+        if (SWDemo?.isDemoId?.(sid) || sid === "demo-lpcc" || sid === "demo") {
+          return demo || SWHub.getDemoMatch();
+        }
+        const fromList = list.find((x) => String(x.id) === sid && !x.demo);
+        if (fromList) {
+          // Keep local settings aligned with shared pick
+          if (String(settings.selectedMatchId) !== sid) {
+            SWHub.saveSettings({ selectedMatchId: sid, selectedSite: shared.site || fromList.site || "" });
+          }
+          return fromList;
+        }
+        // Shared snap when hub list does not have the row yet
+        if (shared.homeTeam || shared.awayTeam) {
+          return {
+            id: sid,
+            matchId: sid,
+            site: shared.site || "",
+            homeTeam: shared.homeTeam || "Home",
+            awayTeam: shared.awayTeam || "Away",
+            homeScore: shared.homeScore || "–",
+            awayScore: shared.awayScore || "–",
+            live: !!shared.live,
+            demo: !!shared.demo,
+            date: shared.date || "",
+            status: shared.status || "",
+          };
+        }
+      }
+    } catch {
+      /* shared optional */
+    }
+
     if (settings.selectedMatchId && (SWDemo?.isDemoId?.(settings.selectedMatchId) || settings.selectedMatchId === demo?.id)) {
       return demo || SWHub.getDemoMatch();
     }
@@ -364,14 +402,28 @@
           .join("");
 
         listEl.querySelectorAll(".match-item").forEach((btn) => {
-          btn.addEventListener("click", () => {
+          btn.addEventListener("click", async () => {
             const isDemo = btn.getAttribute("data-demo") === "1";
-            if (isDemo) selectDemoMatch();
-            else {
+            let match = null;
+            if (isDemo) {
+              match = selectDemoMatch();
+            } else {
+              const id = btn.getAttribute("data-id");
               SWHub.saveSettings({
-                selectedMatchId: btn.getAttribute("data-id"),
+                selectedMatchId: id,
                 selectedSite: btn.getAttribute("data-site") || "",
               });
+              match = cachedMatches.find((x) => String(x.id) === String(id)) || {
+                id,
+                site: btn.getAttribute("data-site") || "",
+              };
+            }
+            try {
+              if (match && SWHub.publishSharedScoreboard) {
+                await SWHub.publishSharedScoreboard(match);
+              }
+            } catch (e) {
+              console.warn("[settings] publish shared", e);
             }
             toast(isDemo ? "Demo fixture selected" : "Fixture selected for overlay");
             paintMatches();

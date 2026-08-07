@@ -465,11 +465,14 @@ h2 {
   color: #fde68a;
 }
 
-/* —— Match list —— */
+/* —— Match list (phone-friendly) —— */
 .match-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: min(55vh, 480px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .match-item {
@@ -477,6 +480,7 @@ h2 {
   grid-template-columns: 1fr auto;
   gap: 8px 12px;
   padding: 14px;
+  min-height: 64px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg);

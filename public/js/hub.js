@@ -193,6 +193,56 @@
   }
 
   /**
+   * Shared scoreboard pick (Live Match feed / Match Day Settings on phone).
+   * GET /api/matchday/scoreboard?club=…
+   */
+  async function fetchSharedScoreboard(club = "") {
+    const c = encodeURIComponent(String(club || loadSettings().clubLabel || "Lullington Park CC"));
+    try {
+      return await getJson(`/api/matchday/scoreboard?club=${c}`);
+    } catch (e) {
+      console.warn("[SWHub] shared scoreboard", e.message || e);
+      return null;
+    }
+  }
+
+  /** Publish selected fixture so Moblin overlay / other phones see the same match */
+  async function publishSharedScoreboard(match, club = "") {
+    if (!match?.id && !match?.matchId) return null;
+    const clubName = String(club || loadSettings().clubLabel || "Lullington Park CC");
+    const body = {
+      club: clubName,
+      matchId: match.id || match.matchId,
+      id: match.id || match.matchId,
+      site: match.site || "",
+      homeTeam: match.homeTeam || "",
+      awayTeam: match.awayTeam || "",
+      homeScore: match.homeScore || "–",
+      awayScore: match.awayScore || "–",
+      status: match.status || "",
+      live: !!match.live,
+      completed: !!match.completed,
+      demo: !!match.demo,
+      date: match.date || "",
+      time: match.time || "",
+      competition: match.competition || "",
+      ground: match.ground || "",
+    };
+    const url = `${hubBase()}/api/matchday/scoreboard`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = new Error(`Publish scoreboard ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  }
+
+  /**
    * Normalise a hub match row for UI + overlay.
    */
   function normaliseMatch(m) {
@@ -356,6 +406,8 @@
     fetchHub,
     fetchMatch,
     fetchStatus,
+    fetchSharedScoreboard,
+    publishSharedScoreboard,
     normaliseMatch,
     getDemoMatch,
     teamLine,
