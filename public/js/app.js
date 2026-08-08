@@ -77,7 +77,8 @@
       location.hostname.includes("onrender.com") || location.hostname === "localhost"
         ? location.origin
         : "https://scorers-window-live.onrender.com";
-    return `${origin}/#/overlay?obs=1`;
+    // Server HTML + meta refresh (Moblin-proof). Not the SPA #/overlay.
+    return `${origin}/scoreboard?matchId=7236091&refresh=120`;
   }
 
   async function copyText(text, okMsg) {
@@ -399,13 +400,14 @@
         <div class="card demo-select-card">
           <h2>Moblin overlay URL</h2>
           <p class="muted" style="margin:0 0 8px;font-size:0.85rem">
-            In Moblin: remove Practice scoreboard → add a <strong>Browser</strong> widget → paste this URL.
-            Size about full width × 400 high, bottom of scene.
+            Use this URL in Moblin <strong>Browser</strong> widget (not the old #/overlay page).
+            It reloads from Play-Cricket every <strong>2 minutes</strong> — works even when the phone throttles JS.
+            Size ~ full width × 220–400 high, bottom of scene.
           </p>
           <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
           <div class="row-actions">
             <button type="button" class="btn btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
-            <a class="btn btn-ghost" href="#/overlay?obs=1" target="_blank" rel="noopener">Preview overlay</a>
+            <a class="btn btn-ghost" href="/scoreboard?matchId=7236091&refresh=120" target="_blank" rel="noopener">Preview overlay</a>
           </div>
         </div>
       </div>

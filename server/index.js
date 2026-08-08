@@ -100,6 +100,166 @@ app.get("/api/matchday/scoreboard", (req, res) =>
 );
 
 /**
+ * Reliable Moblin/OBS scoreboard (NO client JS timers).
+ * Full page reload every N seconds via meta refresh — works when WebViews freeze setInterval.
+ *
+ * GET /scoreboard
+ * GET /scoreboard?matchId=7236091&site=https://lpcc.play-cricket.com&refresh=120
+ *
+ * Point Moblin Browser widget here (not #/overlay SPA).
+ */
+const DEFAULT_OVERLAY_MATCH = {
+  matchId: "7236091",
+  site: "https://lpcc.play-cricket.com",
+  homeTeam: "Lullington Park CC - 2nd XI",
+  awayTeam: "Rosehill CC - 1st XI",
+};
+
+function escHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function shortTeamName(name) {
+  let n = String(name || "").trim();
+  n = n.replace(/\s*CC\s*/gi, " ").replace(/\s*-\s*/g, " ").replace(/\s+/g, " ").trim();
+  if (n.length > 28) n = n.slice(0, 26) + "…";
+  return n || "—";
+}
+
+function pickScoreVal(...vals) {
+  for (const v of vals) {
+    if (v == null || v === "") continue;
+    const s = String(v).trim();
+    if (s && s !== "–" && s !== "-" && s !== "—") return s;
+  }
+  return "—";
+}
+
+async function fetchMatchForOverlay(matchId, site) {
+  const qs = new URLSearchParams({
+    matchId: String(matchId),
+    site: String(site || DEFAULT_OVERLAY_MATCH.site),
+    _: String(Date.now()),
+  });
+  const url = `${HUB_UPSTREAM}/api/live/match?${qs}`;
+  const r = await fetch(url, {
+    headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`hub ${r.status}`);
+  return r.json();
+}
+
+function renderScoreboardHtml(data, opts = {}) {
+  const refresh = Math.max(30, Math.min(600, Number(opts.refresh) || 120));
+  const home = shortTeamName(data.homeTeam || DEFAULT_OVERLAY_MATCH.homeTeam);
+  const away = shortTeamName(data.awayTeam || DEFAULT_OVERLAY_MATCH.awayTeam);
+  const hs = pickScoreVal(data.homeScore, data.summary?.homeScore);
+  const as = pickScoreVal(data.awayScore, data.summary?.awayScore);
+  const live = !!(data.live || data.summary?.live);
+  const status = data.status || data.summary?.status || (live ? "Match In Progress" : "Scoreboard");
+  const badge = live ? "LIVE" : "MATCH";
+  const updated = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const mid = data.matchId || data.id || opts.matchId || "";
+
+  return `<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="${refresh}" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>Scoreboard ${escHtml(mid)}</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: transparent; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #ecfdf5; }
+    .bar {
+      margin: 0 2% 2.5%;
+      padding: 10px 14px 12px;
+      border-radius: 12px;
+      background: rgba(6, 20, 13, 0.88);
+      border: 1px solid rgba(74, 222, 128, 0.45);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+    }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .live { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; color: #fca5a5; }
+    .live::before {
+      content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: #ef4444; box-shadow: 0 0 6px #ef4444; margin-right: 5px; vertical-align: middle;
+    }
+    .status { font-size: 0.7rem; color: #a7f3d0; opacity: 0.95; text-align: right; max-width: 60%;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .teams { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
+    .name { font-size: clamp(0.9rem, 2.2vw, 1.15rem); font-weight: 800; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; }
+    .away { text-align: right; }
+    .score { font-size: clamp(1.2rem, 3vw, 1.65rem); font-weight: 800; font-variant-numeric: tabular-nums; color: #4ade80; }
+    .vs { font-size: 0.75rem; font-weight: 800; opacity: 0.7; }
+    .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px;
+      font-size: 0.65rem; color: #86efac; opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="bar" data-match-id="${escHtml(mid)}">
+    <div class="top">
+      <span class="live">${escHtml(badge)}</span>
+      <span class="status">${escHtml(status)}</span>
+    </div>
+    <div class="teams">
+      <div>
+        <div class="name">${escHtml(home)}</div>
+        <div class="score">${escHtml(hs)}</div>
+      </div>
+      <div class="vs">VS</div>
+      <div class="away">
+        <div class="name">${escHtml(away)}</div>
+        <div class="score">${escHtml(as)}</div>
+      </div>
+    </div>
+    <div class="foot">
+      <span>LPCC · Play-Cricket #${escHtml(mid)}</span>
+      <span>Updated ${escHtml(updated)} · every ${refresh}s</span>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+app.get("/scoreboard", async (req, res) => {
+  const matchId = String(req.query.matchId || DEFAULT_OVERLAY_MATCH.matchId);
+  const site = String(req.query.site || DEFAULT_OVERLAY_MATCH.site);
+  const refresh = Number(req.query.refresh || 120);
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.set("Pragma", "no-cache");
+  try {
+    const data = await fetchMatchForOverlay(matchId, site);
+    res.type("html").send(
+      renderScoreboardHtml(data, { refresh, matchId })
+    );
+  } catch (e) {
+    // Still show teams so stream isn't blank
+    res.type("html").send(
+      renderScoreboardHtml(
+        {
+          matchId,
+          homeTeam: DEFAULT_OVERLAY_MATCH.homeTeam,
+          awayTeam: DEFAULT_OVERLAY_MATCH.awayTeam,
+          homeScore: "—",
+          awayScore: "—",
+          live: false,
+          status: `Waiting for scores (${e.message || "hub error"})`,
+        },
+        { refresh, matchId }
+      )
+    );
+  }
+});
+
+/**
  * Resolve @handle live for in-app embed.
  * IMPORTANT: never rely on embed/live_stream?channel= — YouTube often shows a
  * different (or blank) stream than youtube.com/@handle/live. Always embed the
