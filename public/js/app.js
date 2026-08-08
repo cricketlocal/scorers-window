@@ -210,21 +210,15 @@
       /* shared optional */
     }
 
-    // Lock scoreboard to 2nd XI v Rosehill for today's stream
-    // (ignore old demo / wrong fixture ids)
-    if (
-      !matchId ||
-      matchId === "7224658" ||
-      matchId === "demo-lpcc" ||
-      matchId === "demo" ||
-      matchId === "7224667" ||
-      matchId === "7251069"
-    ) {
-      matchId = TODAY_SCOREBOARD.matchId;
-      site = TODAY_SCOREBOARD.site;
-      labelSnap = labelSnap || TODAY_SCOREBOARD;
-      SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
-    }
+    // Overlay always uses 2nd XI v Rosehill for this match day
+    matchId = TODAY_SCOREBOARD.matchId;
+    site = TODAY_SCOREBOARD.site;
+    labelSnap = {
+      ...(labelSnap || {}),
+      ...TODAY_SCOREBOARD,
+      matchId: TODAY_SCOREBOARD.matchId,
+    };
+    SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
 
     if (SWDemo?.isDemoId?.(matchId) || matchId === "demo-lpcc" || matchId === "demo") {
       return demo || SWHub.getDemoMatch();
@@ -544,15 +538,16 @@
 
     async function tick() {
       try {
+        // Always 2s v Rosehill — live scores from Play-Cricket via hub
         let m = await resolveActiveMatch();
         if (!m) m = SWHub.getDemoMatch();
         if (m && !m.demo) {
-          // Always show a fresh client clock so we can see polls are running
           m.polledAt = new Date().toISOString();
         }
+        const t = new Date().toLocaleTimeString();
         SWOverlay.mount(root, m, {
           brand: m?.demo ? "DEMO · LPCC" : brand,
-          extra: m && !m.demo ? `poll ${new Date().toLocaleTimeString()}` : "",
+          extra: m && !m.demo ? `PC · ${t}` : "",
         });
       } catch (e) {
         console.warn("[overlay] tick", e);
@@ -562,8 +557,9 @@
 
     await tick();
     stopActivePoll();
-    // 5s poll + visibility kick (Moblin WebView throttles background timers)
-    stopPoll = SWHub.poll(tick, 5000);
+    // Overlay only: refresh Play-Cricket scores every 2 minutes
+    // (reliable in Moblin; faster polls often get throttled in the browser widget)
+    stopPoll = SWHub.poll(tick, 120000);
   }
 
   /* ——— Router ——— */

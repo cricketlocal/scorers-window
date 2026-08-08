@@ -1,5 +1,5 @@
 /* Scorers Window — network-first (overlay must not stick on old JS) */
-const CACHE = "scorers-window-v33";
+const CACHE = "scorers-window-v34";
 const ASSETS = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/hub.js", "/js/overlay.js", "/js/demo.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
