@@ -506,62 +506,10 @@
   /* ——— Overlay (Moblin browser widget) ——— */
 
   async function viewOverlay() {
-    setOverlayMode(true);
-    setNav("");
-    document.documentElement.classList.add("obs-capture");
-
-    // Always pin overlay to 2nd XI v Rosehill for this match day
-    SWHub.saveSettings({
-      selectedMatchId: TODAY_SCOREBOARD.matchId,
-      selectedSite: TODAY_SCOREBOARD.site,
-    });
-    try {
-      await SWHub.publishSharedScoreboard?.({
-        id: TODAY_SCOREBOARD.matchId,
-        matchId: TODAY_SCOREBOARD.matchId,
-        site: TODAY_SCOREBOARD.site,
-        homeTeam: TODAY_SCOREBOARD.homeTeam,
-        awayTeam: TODAY_SCOREBOARD.awayTeam,
-        homeScore: "–",
-        awayScore: "–",
-        live: true,
-        demo: false,
-        date: TODAY_SCOREBOARD.date,
-        time: TODAY_SCOREBOARD.time,
-        ground: TODAY_SCOREBOARD.ground,
-      });
-    } catch {
-      /* */
-    }
-
-    main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
-    const root = document.getElementById("overlay-root");
-    const brand = SWHub.loadSettings().clubLabel || "Lullington Park CC";
-
-    async function tick() {
-      try {
-        // Always 2s v Rosehill — live scores from Play-Cricket via hub
-        let m = await resolveActiveMatch();
-        if (!m) m = SWHub.getDemoMatch();
-        if (m && !m.demo) {
-          m.polledAt = new Date().toISOString();
-        }
-        const t = new Date().toLocaleTimeString();
-        SWOverlay.mount(root, m, {
-          brand: m?.demo ? "DEMO · LPCC" : brand,
-          extra: m && !m.demo ? `PC · ${t}` : "",
-        });
-      } catch (e) {
-        console.warn("[overlay] tick", e);
-        SWOverlay.mount(root, null, { brand, extra: e.message || "update failed" });
-      }
-    }
-
-    await tick();
-    stopActivePoll();
-    // Overlay only: refresh Play-Cricket scores every 2 minutes
-    // (reliable in Moblin; faster polls often get throttled in the browser widget)
-    stopPoll = SWHub.poll(tick, 120000);
+    // Same URL Moblin already uses (#/overlay) → reliable server scoreboard
+    location.replace(
+      `/scoreboard?matchId=${encodeURIComponent(TODAY_SCOREBOARD.matchId)}&refresh=120`
+    );
   }
 
   /* ——— Router ——— */

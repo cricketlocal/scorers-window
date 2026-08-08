@@ -32,10 +32,20 @@
     </footer>
   </div>
 
-  <script src="/js/demo.js?v=35" defer></script>
-  <script src="/js/hub.js?v=35" defer></script>
-  <script src="/js/overlay.js?v=35" defer></script>
-  <script src="/js/app.js?v=35" defer></script>
+  <script>
+    /* Moblin still uses #/overlay — send it to the reliable server scoreboard
+       (meta-refresh every 2 min; no JS poll). User does not need to change URL. */
+    (function () {
+      var h = String(location.hash || "");
+      if (/overlay/i.test(h)) {
+        location.replace("/scoreboard?matchId=7236091&refresh=120");
+      }
+    })();
+  </script>
+  <script src="/js/demo.js?v=36" defer></script>
+  <script src="/js/hub.js?v=36" defer></script>
+  <script src="/js/overlay.js?v=36" defer></script>
+  <script src="/js/app.js?v=36" defer></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
