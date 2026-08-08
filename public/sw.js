@@ -1,5 +1,5 @@
-/* Scorers Window — light shell cache */
-const CACHE = "scorers-window-v31";
+/* Scorers Window — network-first (overlay must not stick on old JS) */
+const CACHE = "scorers-window-v32";
 const ASSETS = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/hub.js", "/js/overlay.js", "/js/demo.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -15,13 +15,28 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
+  // Never cache API or use stale JS for overlay score updates
+  if (url.pathname.startsWith("/api/") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || url.pathname.endsWith("sw.js")) {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        if (e.request.method === "GET" && res.ok && !url.pathname.startsWith("/api/")) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      const copy = res.clone();
-      if (e.request.method === "GET" && res.ok) {
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-      }
-      return res;
-    }))
+    fetch(e.request)
+      .then((res) => {
+        if (e.request.method === "GET" && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });

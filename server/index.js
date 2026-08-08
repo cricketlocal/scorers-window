@@ -62,6 +62,44 @@ app.get("/api/stream/status", (_req, res) => {
 });
 
 /**
+ * Proxy Cricket Local hub APIs (same-origin for Moblin WebView — more reliable
+ * than cross-origin fetch + CDN cache).
+ * GET /api/live/match?matchId=&site=
+ * GET /api/live/hub
+ * GET /api/matchday/scoreboard?club=
+ */
+const HUB_UPSTREAM = (process.env.HUB_URL || "https://cricket-local-v5-1.onrender.com").replace(
+  /\/+$/,
+  ""
+);
+
+async function proxyHub(req, res, hubPath) {
+  try {
+    const qs = new URLSearchParams(req.query);
+    qs.set("_", String(Date.now()));
+    const url = `${HUB_UPSTREAM}${hubPath}?${qs.toString()}`;
+    const r = await fetch(url, {
+      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+      cache: "no-store",
+    });
+    const text = await r.text();
+    res.status(r.status);
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.set("Access-Control-Allow-Origin", "*");
+    res.type("json").send(text);
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.message || String(e) });
+  }
+}
+
+app.get("/api/live/match", (req, res) => proxyHub(req, res, "/api/live/match"));
+app.get("/api/live/hub", (req, res) => proxyHub(req, res, "/api/live/hub"));
+app.get("/api/live/status", (req, res) => proxyHub(req, res, "/api/live/status"));
+app.get("/api/matchday/scoreboard", (req, res) =>
+  proxyHub(req, res, "/api/matchday/scoreboard")
+);
+
+/**
  * Resolve @handle live for in-app embed.
  * IMPORTANT: never rely on embed/live_stream?channel= — YouTube often shows a
  * different (or blank) stream than youtube.com/@handle/live. Always embed the

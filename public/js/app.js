@@ -528,23 +528,24 @@
       try {
         let m = await resolveActiveMatch();
         if (!m) m = SWHub.getDemoMatch();
-        SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
+        if (m && !m.demo) {
+          // Always show a fresh client clock so we can see polls are running
+          m.polledAt = new Date().toISOString();
+        }
+        SWOverlay.mount(root, m, {
+          brand: m?.demo ? "DEMO · LPCC" : brand,
+          extra: m && !m.demo ? `poll ${new Date().toLocaleTimeString()}` : "",
+        });
       } catch (e) {
         console.warn("[overlay] tick", e);
-        try {
-          const m = await resolveActiveMatch();
-          if (m) SWOverlay.mount(root, m, { brand });
-          else SWOverlay.mount(root, null, { brand, extra: e.message });
-        } catch {
-          SWOverlay.mount(root, null, { brand, extra: e.message });
-        }
+        SWOverlay.mount(root, null, { brand, extra: e.message || "update failed" });
       }
     }
 
     await tick();
     stopActivePoll();
-    // Faster refresh so Moblin browser widget keeps scores current
-    stopPoll = SWHub.poll(tick, 8000);
+    // 5s poll + visibility kick (Moblin WebView throttles background timers)
+    stopPoll = SWHub.poll(tick, 5000);
   }
 
   /* ——— Router ——— */

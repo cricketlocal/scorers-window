@@ -148,15 +148,34 @@
   }
 
   function hubBase() {
+    // Prefer same-origin hub proxy on scorers-window (Moblin browser widget)
+    try {
+      if (
+        typeof location !== "undefined" &&
+        location.origin &&
+        /scorers-window/i.test(location.hostname || "")
+      ) {
+        return location.origin;
+      }
+    } catch {
+      /* */
+    }
     const u = (loadSettings().hubUrl || DEFAULT_HUB).replace(/\/+$/, "");
     return u || DEFAULT_HUB;
   }
 
   async function getJson(path) {
-    const url = `${hubBase()}${path.startsWith("/") ? path : `/${path}`}`;
+    const base = `${hubBase()}${path.startsWith("/") ? path : `/${path}`}`;
+    const sep = base.includes("?") ? "&" : "?";
+    // Bust CDN/browser cache (hub sends max-age=15)
+    const url = `${base}${sep}_=${Date.now()}`;
     const res = await fetch(url, {
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
     });
     if (!res.ok) {
       const err = new Error(`Hub ${res.status}: ${path}`);
@@ -171,9 +190,12 @@
     return getJson("/api/live/hub");
   }
 
-  /** Single match board */
+  /** Single match board — always network, cache-busted */
   async function fetchMatch(matchId, site = "") {
-    const params = new URLSearchParams({ matchId: String(matchId || "") });
+    const params = new URLSearchParams({
+      matchId: String(matchId || ""),
+      t: String(Date.now()),
+    });
     if (site) params.set("site", site);
     return getJson(`/api/live/match?${params}`);
   }
@@ -320,23 +342,36 @@
     return `${match.homeTeam} vs ${match.awayTeam}`;
   }
 
-  /** Poll helper — returns stop() */
+  /**
+   * Poll helper — setInterval (more reliable than chained setTimeout in
+   * background WebViews / Moblin browser widgets).
+   * Returns stop().
+   */
   function poll(fn, ms = POLL_MS) {
-    let timer = null;
     let stopped = false;
-    const tick = async () => {
-      if (stopped) return;
+    let running = false;
+    const run = async () => {
+      if (stopped || running) return;
+      running = true;
       try {
         await fn();
       } catch (e) {
         console.warn("[hub poll]", e.message || e);
+      } finally {
+        running = false;
       }
-      if (!stopped) timer = setTimeout(tick, ms);
     };
-    tick();
+    void run();
+    const timer = setInterval(run, Math.max(3000, Number(ms) || POLL_MS));
+    // Kick again when widget becomes visible (Moblin often freezes bg timers)
+    const onVis = () => {
+      if (document.visibilityState === "visible") void run();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }
 
