@@ -169,55 +169,92 @@
     return { list, liveList, demo, message: data.message, liveCount: data.liveCount ?? liveList.length };
   }
 
+  /**
+   * Active overlay match: always re-fetch live scores for the selected id.
+   * Shared pick (phone) only chooses WHICH match — not frozen scores.
+   */
   async function resolveActiveMatch() {
     const settings = SWHub.loadSettings();
-    const { list, demo } = await loadMatches();
+    const demo = SWHub.getDemoMatch?.();
+    let matchId = String(settings.selectedMatchId || "").trim();
+    let site = String(settings.selectedSite || "").trim();
+    let labelSnap = null;
 
-    // Prefer shared pick from phone (Live Match feed / Match Day Settings)
+    // Shared pick from Live Match feed / Match Day Settings (which game)
     try {
       const shared = await SWHub.fetchSharedScoreboard?.(settings.clubLabel || "Lullington Park CC");
       if (shared?.matchId) {
-        const sid = String(shared.matchId);
-        if (SWDemo?.isDemoId?.(sid) || sid === "demo-lpcc" || sid === "demo") {
-          return demo || SWHub.getDemoMatch();
-        }
-        const fromList = list.find((x) => String(x.id) === sid && !x.demo);
-        if (fromList) {
-          // Keep local settings aligned with shared pick
-          if (String(settings.selectedMatchId) !== sid) {
-            SWHub.saveSettings({ selectedMatchId: sid, selectedSite: shared.site || fromList.site || "" });
-          }
-          return fromList;
-        }
-        // Shared snap when hub list does not have the row yet
-        if (shared.homeTeam || shared.awayTeam) {
-          return {
-            id: sid,
-            matchId: sid,
-            site: shared.site || "",
-            homeTeam: shared.homeTeam || "Home",
-            awayTeam: shared.awayTeam || "Away",
-            homeScore: shared.homeScore || "–",
-            awayScore: shared.awayScore || "–",
-            live: !!shared.live,
-            demo: !!shared.demo,
-            date: shared.date || "",
-            status: shared.status || "",
-          };
+        matchId = String(shared.matchId);
+        site = String(shared.site || site || "https://lpcc.play-cricket.com").trim();
+        labelSnap = shared;
+        if (
+          String(settings.selectedMatchId) !== matchId ||
+          String(settings.selectedSite || "") !== site
+        ) {
+          SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
         }
       }
     } catch {
       /* shared optional */
     }
 
-    if (settings.selectedMatchId && (SWDemo?.isDemoId?.(settings.selectedMatchId) || settings.selectedMatchId === demo?.id)) {
+    // Force today's 2nd XI v Rosehill if nothing sensible selected
+    if (!matchId || matchId === "7224658") {
+      matchId = "7236091";
+      site = site || "https://lpcc.play-cricket.com";
+      SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
+    }
+
+    if (SWDemo?.isDemoId?.(matchId) || matchId === "demo-lpcc" || matchId === "demo") {
       return demo || SWHub.getDemoMatch();
     }
-    if (settings.selectedMatchId) {
-      const m = list.find((x) => x.id === settings.selectedMatchId && !x.demo);
-      if (m) return m;
+
+    // Live scores: always hit match API (hub list alone is often empty/stale)
+    if (matchId) {
+      try {
+        const raw = await SWHub.fetchMatch(matchId, site || "https://lpcc.play-cricket.com");
+        const m = SWHub.normaliseMatch(raw);
+        if (m?.id) {
+          // Prefer live API scores; keep labels from shared if API blanks teams
+          if (labelSnap) {
+            if (!m.homeTeam || m.homeTeam === "Home") m.homeTeam = labelSnap.homeTeam || m.homeTeam;
+            if (!m.awayTeam || m.awayTeam === "Away") m.awayTeam = labelSnap.awayTeam || m.awayTeam;
+          }
+          m.live = m.live || !!raw?.live || !!raw?.summary?.live;
+          return m;
+        }
+      } catch (e) {
+        console.warn("[overlay] fetchMatch", matchId, e.message || e);
+      }
     }
-    return list.find((x) => x.live && !x.demo) || demo || list[0] || null;
+
+    // Fallback: hub list row
+    try {
+      const { list } = await loadMatches();
+      const fromList = list.find((x) => String(x.id) === String(matchId) && !x.demo);
+      if (fromList) return fromList;
+    } catch {
+      /* */
+    }
+
+    // Last resort: shared labels only (better than wrong demo)
+    if (labelSnap && matchId && matchId !== "demo-lpcc") {
+      return {
+        id: matchId,
+        matchId,
+        site,
+        homeTeam: labelSnap.homeTeam || "Lullington Park CC - 2nd XI",
+        awayTeam: labelSnap.awayTeam || "Rosehill CC - 1st XI",
+        homeScore: labelSnap.homeScore || "–",
+        awayScore: labelSnap.awayScore || "–",
+        live: !!labelSnap.live,
+        demo: false,
+        date: labelSnap.date || "",
+        status: labelSnap.status || "Live",
+      };
+    }
+
+    return demo || null;
   }
 
   /* ——— Live tab ——— */
@@ -456,7 +493,32 @@
     setNav("");
     document.documentElement.classList.add("obs-capture");
 
-    if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();
+    // Ensure 2s v Rosehill is selected for today if unset
+    const cur = SWHub.loadSettings();
+    if (!cur.selectedMatchId || cur.selectedMatchId === "7224658" || cur.selectedMatchId === "demo-lpcc") {
+      SWHub.saveSettings({
+        selectedMatchId: "7236091",
+        selectedSite: "https://lpcc.play-cricket.com",
+      });
+      try {
+        await SWHub.publishSharedScoreboard?.({
+          id: "7236091",
+          matchId: "7236091",
+          site: "https://lpcc.play-cricket.com",
+          homeTeam: "Lullington Park CC - 2nd XI",
+          awayTeam: "Rosehill CC - 1st XI",
+          homeScore: "–",
+          awayScore: "–",
+          live: true,
+          demo: false,
+          date: "Saturday 8 August 2026",
+          time: "13:00",
+          ground: "Edingale Lane - Main Ground",
+        });
+      } catch {
+        /* */
+      }
+    }
 
     main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
     const root = document.getElementById("overlay-root");
@@ -468,15 +530,21 @@
         if (!m) m = SWHub.getDemoMatch();
         SWOverlay.mount(root, m, { brand: m?.demo ? "DEMO · LPCC" : brand });
       } catch (e) {
-        const demo = SWHub.getDemoMatch();
-        if (demo) SWOverlay.mount(root, demo, { brand: "DEMO · LPCC" });
-        else SWOverlay.mount(root, null, { brand, extra: e.message });
+        console.warn("[overlay] tick", e);
+        try {
+          const m = await resolveActiveMatch();
+          if (m) SWOverlay.mount(root, m, { brand });
+          else SWOverlay.mount(root, null, { brand, extra: e.message });
+        } catch {
+          SWOverlay.mount(root, null, { brand, extra: e.message });
+        }
       }
     }
 
     await tick();
     stopActivePoll();
-    stopPoll = SWHub.poll(tick, 12000);
+    // Faster refresh so Moblin browser widget keeps scores current
+    stopPoll = SWHub.poll(tick, 8000);
   }
 
   /* ——— Router ——— */

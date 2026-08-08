@@ -89,8 +89,8 @@
       /** Optional override for relay host (default: same origin) */
       streamRelayUrl: "",
       clubLabel: "Lullington Park CC",
-      /** Weekend demo (Sat 1 Aug 2026 LPCC v Brailsford) until a live match is picked */
-      selectedMatchId: "7224658",
+      /** Default: Sat 8 Aug 2026 LPCC 2nd XI v Rosehill (update when needed) */
+      selectedMatchId: "7236091",
       selectedSite: "https://lpcc.play-cricket.com",
       useDemoWhenIdle: true,
     };
@@ -248,10 +248,12 @@
   function normaliseMatch(m) {
     if (!m) return null;
     const board = m.board && typeof m.board === "object" ? m.board : {};
+    const summary = m.summary && typeof m.summary === "object" ? m.summary : {};
     const detail =
       m.detail ||
       board.detail ||
       board.step ||
+      summary.detail ||
       (board.batsmen || board.batters || board.bowler
         ? {
             batters: board.batsmen || board.batters,
@@ -262,21 +264,37 @@
             situation: board.situation || m.status,
           }
         : null);
+    const id = String(
+      m.matchId || m.id || m.match_id || summary.id || board.id || ""
+    );
+    const live = !!(m.live || m.is_live || summary.live) && !m.completed && !m.demo && !summary.completed;
     return {
-      id: String(m.id || m.match_id || board.id || ""),
-      site: m.site || board.site || "",
-      homeTeam: m.homeTeam || m.home_team || board.homeTeam || "Home",
-      awayTeam: m.awayTeam || m.away_team || board.awayTeam || "Away",
-      homeScore: pickScore(m.homeScore, m.home_score, board.homeScore),
-      awayScore: pickScore(m.awayScore, m.away_score, board.awayScore),
-      status: m.status || m.result || board.status || (m.live ? "Live" : ""),
-      live: !!(m.live || m.is_live) && !m.completed && !m.demo,
-      completed: !!(m.completed || board.completed),
+      id,
+      matchId: id,
+      site: m.site || summary.site || board.site || "",
+      homeTeam: m.homeTeam || m.home_team || summary.homeTeam || board.homeTeam || "Home",
+      awayTeam: m.awayTeam || m.away_team || summary.awayTeam || board.awayTeam || "Away",
+      homeScore: pickScore(
+        m.homeScore,
+        m.home_score,
+        summary.homeScore,
+        board.homeScore
+      ),
+      awayScore: pickScore(
+        m.awayScore,
+        m.away_score,
+        summary.awayScore,
+        board.awayScore
+      ),
+      status: m.status || m.result || summary.status || summary.result || board.status || (live ? "Live" : ""),
+      live,
+      completed: !!(m.completed || summary.completed || board.completed),
       demo: !!(m.demo || board.demo),
-      date: m.date || board.date || "",
-      competition: m.competition || "",
+      date: m.date || summary.date || board.date || "",
+      competition: m.competition || m.divisionName || summary.divisionName || "",
+      ground: m.ground || summary.ground || "",
       playCricketUrl: m.playCricketUrl || "",
-      polledAt: m.polledAt || m.polled_at || null,
+      polledAt: m.polledAt || m.polled_at || m.hubCachedAt || null,
       detail: detail || null,
       board,
       raw: m,
