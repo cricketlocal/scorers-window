@@ -169,9 +169,21 @@
     return { list, liveList, demo, message: data.message, liveCount: data.liveCount ?? liveList.length };
   }
 
+  /** Today's stream scoreboard: LPCC 2nd XI v Rosehill (Play-Cricket) */
+  const TODAY_SCOREBOARD = {
+    matchId: "7236091",
+    site: "https://lpcc.play-cricket.com",
+    homeTeam: "Lullington Park CC - 2nd XI",
+    awayTeam: "Rosehill CC - 1st XI",
+    date: "Saturday 8 August 2026",
+    time: "13:00",
+    ground: "Edingale Lane - Main Ground",
+  };
+
   /**
    * Active overlay match: always re-fetch live scores for the selected id.
    * Shared pick (phone) only chooses WHICH match — not frozen scores.
+   * For this match day we lock to 2nd XI v Rosehill unless demo is forced.
    */
   async function resolveActiveMatch() {
     const settings = SWHub.loadSettings();
@@ -185,7 +197,7 @@
       const shared = await SWHub.fetchSharedScoreboard?.(settings.clubLabel || "Lullington Park CC");
       if (shared?.matchId) {
         matchId = String(shared.matchId);
-        site = String(shared.site || site || "https://lpcc.play-cricket.com").trim();
+        site = String(shared.site || site || TODAY_SCOREBOARD.site).trim();
         labelSnap = shared;
         if (
           String(settings.selectedMatchId) !== matchId ||
@@ -198,10 +210,19 @@
       /* shared optional */
     }
 
-    // Force today's 2nd XI v Rosehill if nothing sensible selected
-    if (!matchId || matchId === "7224658") {
-      matchId = "7236091";
-      site = site || "https://lpcc.play-cricket.com";
+    // Lock scoreboard to 2nd XI v Rosehill for today's stream
+    // (ignore old demo / wrong fixture ids)
+    if (
+      !matchId ||
+      matchId === "7224658" ||
+      matchId === "demo-lpcc" ||
+      matchId === "demo" ||
+      matchId === "7224667" ||
+      matchId === "7251069"
+    ) {
+      matchId = TODAY_SCOREBOARD.matchId;
+      site = TODAY_SCOREBOARD.site;
+      labelSnap = labelSnap || TODAY_SCOREBOARD;
       SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
     }
 
@@ -493,31 +514,28 @@
     setNav("");
     document.documentElement.classList.add("obs-capture");
 
-    // Ensure 2s v Rosehill is selected for today if unset
-    const cur = SWHub.loadSettings();
-    if (!cur.selectedMatchId || cur.selectedMatchId === "7224658" || cur.selectedMatchId === "demo-lpcc") {
-      SWHub.saveSettings({
-        selectedMatchId: "7236091",
-        selectedSite: "https://lpcc.play-cricket.com",
+    // Always pin overlay to 2nd XI v Rosehill for this match day
+    SWHub.saveSettings({
+      selectedMatchId: TODAY_SCOREBOARD.matchId,
+      selectedSite: TODAY_SCOREBOARD.site,
+    });
+    try {
+      await SWHub.publishSharedScoreboard?.({
+        id: TODAY_SCOREBOARD.matchId,
+        matchId: TODAY_SCOREBOARD.matchId,
+        site: TODAY_SCOREBOARD.site,
+        homeTeam: TODAY_SCOREBOARD.homeTeam,
+        awayTeam: TODAY_SCOREBOARD.awayTeam,
+        homeScore: "–",
+        awayScore: "–",
+        live: true,
+        demo: false,
+        date: TODAY_SCOREBOARD.date,
+        time: TODAY_SCOREBOARD.time,
+        ground: TODAY_SCOREBOARD.ground,
       });
-      try {
-        await SWHub.publishSharedScoreboard?.({
-          id: "7236091",
-          matchId: "7236091",
-          site: "https://lpcc.play-cricket.com",
-          homeTeam: "Lullington Park CC - 2nd XI",
-          awayTeam: "Rosehill CC - 1st XI",
-          homeScore: "–",
-          awayScore: "–",
-          live: true,
-          demo: false,
-          date: "Saturday 8 August 2026",
-          time: "13:00",
-          ground: "Edingale Lane - Main Ground",
-        });
-      } catch {
-        /* */
-      }
+    } catch {
+      /* */
     }
 
     main().innerHTML = `<div class="overlay-root" id="overlay-root"></div>`;
