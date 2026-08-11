@@ -1,7 +1,7 @@
 /**
  * Scorers Window — minimal SPA
  * 1) Live — embedded YouTube + Watch Live Video (red offline / green live)
- * 2) Settings — fixture for overlay + Moblin overlay URL
+ * 2) Settings — one Match day setup page (fixture + YouTube + overlay)
  * Overlay page remains for Moblin browser widget: #/overlay?obs=1
  */
 (function () {
@@ -418,62 +418,85 @@
     setNav("settings");
     const s = SWHub.loadSettings();
     const url = overlayUrl();
+    const keySaved = !!(s.youtubeStreamKey || "").trim();
+    const keyVal =
+      s.youtubeStreamKey && !SWHub.looksLikeUrlNotStreamKey?.(s.youtubeStreamKey)
+        ? s.youtubeStreamKey
+        : "";
 
     // OAuth return messages
     const params = route().params;
     const ytFlag = params.get("youtube") || "";
 
     main().innerHTML = `
-      <div class="settings-page">
-        <h1>Settings</h1>
-        <p class="lead">Choose the fixture for the scoreboard overlay, and copy the Moblin browser URL.</p>
+      <div class="settings-page setup-page">
+        <header class="setup-hero">
+          <h1>Match day setup</h1>
+          <p class="lead">One page for fixture, YouTube, and Moblin overlay. Select a match to drive scores and the live stream title.</p>
+        </header>
 
-        <div class="card">
-          <h2>YouTube live title &amp; description</h2>
-          <p class="muted" style="margin:0 0 10px;font-size:0.85rem">
-            Connect the <strong>Lullington Live</strong> Google account once.
-            When you select a fixture below, we update the current YouTube live
-            <strong>title</strong> and <strong>description</strong> with match details.
-          </p>
-          <p id="yt-oauth-status" class="muted" style="margin:0 0 12px;font-size:0.85rem">Checking…</p>
-          <div class="row-actions">
-            <a class="btn btn-primary" id="btn-yt-connect" href="/api/youtube/oauth/start">Connect YouTube</a>
-            <button type="button" class="btn btn-sm" id="btn-yt-push">Push selected match now</button>
-            <button type="button" class="btn btn-sm btn-ghost" id="btn-yt-disconnect">Disconnect</button>
+        <div class="card setup-card">
+          <div class="setup-section" id="section-fixture">
+            <div class="setup-step"><span class="setup-num">1</span><h2>Fixture</h2></div>
+            <p class="muted setup-hint">
+              Scoreboard overlay + YouTube title/description use this match.
+            </p>
+            <div class="row-actions" style="margin-bottom:12px">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-demo">Demo match</button>
+              <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh list</button>
+              <span class="badge badge-live" id="match-badge">…</span>
+            </div>
+            <p class="muted" id="selected-label" style="margin:0 0 10px;font-size:0.9rem;font-weight:700"></p>
+            <div id="match-list" class="match-list"><p class="empty">Loading…</p></div>
           </div>
-          <p class="muted" style="margin:10px 0 0;font-size:0.8rem">
-            Tip: start or schedule the stream in YouTube Studio first, then select the fixture.
-            After Connect, copy <code>YOUTUBE_REFRESH_TOKEN</code> from server logs into Render if redeploys drop the link.
-          </p>
-        </div>
 
-        <div class="card">
-          <h2>Fixture for overlay</h2>
-          <p class="muted" style="margin:0 0 12px;font-size:0.85rem">
-            This match is shown on the Moblin / OBS scoreboard overlay.
-            Selecting a fixture also updates YouTube (if connected).
-          </p>
-          <div class="row-actions" style="margin-bottom:12px">
-            <button type="button" class="btn btn-sm btn-primary" id="btn-demo">Select demo match</button>
-            <button type="button" class="btn btn-sm" id="btn-refresh-matches">Refresh live list</button>
-            <span class="badge badge-live" id="match-badge">…</span>
+          <hr class="setup-divider" />
+
+          <div class="setup-section" id="section-youtube">
+            <div class="setup-step"><span class="setup-num">2</span><h2>YouTube</h2></div>
+            <p class="muted setup-hint">
+              Connect <strong>Lullington Live</strong> once. Picking a fixture updates the live
+              <strong>title</strong> and <strong>description</strong>. Stream key is for Go Live / Moblin RTMP.
+            </p>
+            <p id="yt-oauth-status" class="muted" style="margin:0 0 12px;font-size:0.85rem">Checking…</p>
+            <div class="row-actions" style="margin-bottom:14px">
+              <a class="btn btn-primary" id="btn-yt-connect" href="/api/youtube/oauth/start">Connect YouTube</a>
+              <button type="button" class="btn btn-sm" id="btn-yt-push">Push title now</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="btn-yt-disconnect">Disconnect</button>
+            </div>
+            <div class="field">
+              <label for="clubLabel">Club name on graphics</label>
+              <input id="clubLabel" name="clubLabel" type="text" value="${esc(s.clubLabel || "Lullington Park CC")}" autocomplete="organization" />
+            </div>
+            <div class="field">
+              <label for="youtubeStreamKey">YouTube stream key ${keySaved ? "· saved" : ""}</label>
+              <input id="youtubeStreamKey" name="youtubeStreamKey" type="password" autocomplete="off"
+                value="${esc(keyVal)}" placeholder="xxxx-xxxx-xxxx-xxxx" />
+              <p class="hint">Studio → Go live → Stream → copy <strong>Stream key</strong> only (not a URL).</p>
+            </div>
+            <div class="field">
+              <label for="youtubeChannelHandle">Channel handle</label>
+              <input id="youtubeChannelHandle" name="youtubeChannelHandle" type="text"
+                value="${esc(s.youtubeChannelHandle || "LullingtonLive")}" placeholder="LullingtonLive" />
+            </div>
+            <div class="row-actions">
+              <button type="button" class="btn btn-primary" id="btn-save-yt">Save YouTube &amp; club</button>
+            </div>
           </div>
-          <p class="muted" id="selected-label" style="margin:0 0 10px;font-size:0.85rem"></p>
-          <div id="match-list" class="match-list"><p class="empty">Loading…</p></div>
-        </div>
 
-        <div class="card demo-select-card">
-          <h2>Moblin overlay URL</h2>
-          <p class="muted" style="margin:0 0 8px;font-size:0.85rem">
-            Use this URL in Moblin <strong>Browser</strong> widget (or keep <code>#/overlay</code> — it redirects here).
-            Rotates: <strong>~75%</strong> scores · batters · bowlers · run-rate/RRR
-            (reloads every 10s from Play-Cricket — works when the phone throttles JS).
-            Full width, bottom of the browser widget.
-          </p>
-          <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
-          <div class="row-actions">
-            <button type="button" class="btn btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
-            <a class="btn btn-ghost" href="/scoreboard?matchId=7236091&refresh=10" target="_blank" rel="noopener">Preview overlay</a>
+          <hr class="setup-divider" />
+
+          <div class="setup-section" id="section-overlay">
+            <div class="setup-step"><span class="setup-num">3</span><h2>Moblin overlay</h2></div>
+            <p class="muted setup-hint">
+              Paste into Moblin <strong>Browser</strong> widget. Full width, bottom of scene.
+              Rotates ~75% scores · batters · bowlers · run-rate (every 10s).
+            </p>
+            <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
+            <div class="row-actions">
+              <button type="button" class="btn btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
+              <a class="btn btn-ghost" href="/scoreboard?matchId=7236091&refresh=10" target="_blank" rel="noopener">Preview</a>
+            </div>
           </div>
         </div>
       </div>
@@ -494,7 +517,7 @@
       const m = cachedMatches.find((x) => x.id === id) || (SWDemo?.isDemoId?.(id) ? SWHub.getDemoMatch() : null);
       if (selectedLabel) {
         selectedLabel.textContent = m
-          ? `Selected: ${m.homeTeam} vs ${m.awayTeam} · ${m.homeScore} · ${m.awayScore}${m.demo ? " (DEMO)" : ""}`
+          ? `Selected: ${m.homeTeam} vs ${m.awayTeam} · ${m.homeScore || "—"} · ${m.awayScore || "—"}${m.demo ? " (DEMO)" : ""}`
           : id
             ? `Selected match #${id}`
             : "No fixture selected — pick demo or a live match";
@@ -509,7 +532,6 @@
       } catch (e) {
         console.warn("[settings] publish shared", e);
       }
-      // Update YouTube live title/description when connected
       const yt = await pushMatchToYouTube(match);
       if (yt?.ok) {
         toast(
@@ -618,6 +640,26 @@
         toast("Disconnect failed");
       }
       refreshYoutubeStatus();
+    });
+    document.getElementById("btn-save-yt")?.addEventListener("click", () => {
+      let streamKey = String(document.getElementById("youtubeStreamKey")?.value || "").trim();
+      if (SWHub.looksLikeUrlNotStreamKey?.(streamKey)) {
+        toast("That was a YouTube link — paste the Stream KEY only");
+        streamKey = "";
+      }
+      const clubLabel =
+        String(document.getElementById("clubLabel")?.value || "").trim() || "Lullington Park CC";
+      const handle =
+        String(document.getElementById("youtubeChannelHandle")?.value || "")
+          .trim()
+          .replace(/^@/, "") || "LullingtonLive";
+      SWHub.saveSettings({
+        clubLabel,
+        youtubeStreamKey: streamKey,
+        youtubeChannelHandle: handle,
+        youtubeLiveFeedUrl: `https://www.youtube.com/@${handle}/live`,
+      });
+      toast("YouTube & club settings saved");
     });
 
     if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();

@@ -855,6 +855,81 @@ html.obs-capture .main.main--overlay {
   max-width: 720px;
   margin: 0 auto;
 }
+.setup-page .setup-hero {
+  margin: 0 0 14px;
+}
+.setup-page .setup-hero h1 {
+  margin: 0 0 6px;
+  font-size: 1.45rem;
+  font-weight: 900;
+}
+.setup-card {
+  padding: 0;
+  overflow: hidden;
+}
+.setup-section {
+  padding: 16px 16px 18px;
+}
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+.setup-step h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+.setup-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #4ade80, #16a34a);
+  color: #052e16;
+  font-size: 0.85rem;
+  font-weight: 900;
+  flex: 0 0 auto;
+}
+.setup-hint {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.setup-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0;
+}
+.setup-page .field {
+  margin: 0 0 12px;
+}
+.setup-page .field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.setup-page .field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+.setup-page .field .hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
 
 .btn-watch-live {
   display: flex;
