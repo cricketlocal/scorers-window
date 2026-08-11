@@ -530,6 +530,10 @@ h2 {
   border-radius: 999px;
 }
 
+.yt-oauth-ok {
+  color: var(--accent);
+  font-weight: 700;
+}
 .badge-live {
   background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;

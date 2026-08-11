@@ -31,8 +31,11 @@ function ffmpegAvailable() {
 const hasFfmpeg = ffmpegAvailable();
 console.log(`[scorers-window] ffmpeg: ${hasFfmpeg ? "ok" : "MISSING"}`);
 
+const youtubeOauth = require("./youtube-oauth");
+
 const app = express();
 app.disable("x-powered-by");
+app.use(express.json({ limit: "64kb" }));
 
 /** @type {Map<string, object>} */
 const sessions = new Map();
@@ -800,6 +803,12 @@ app.get("/api/youtube/channel-live", async (req, res) => {
     });
   }
 });
+
+// OAuth connect + push match title/description to current YouTube live
+youtubeOauth.mount(app);
+console.log(
+  `[scorers-window] youtube oauth: ${youtubeOauth.configured() ? "configured" : "not configured (set YOUTUBE_CLIENT_ID/SECRET)"}`
+);
 
 app.use(
   express.static(PUBLIC, {

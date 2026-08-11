@@ -363,11 +363,65 @@
 
   /* ——— Settings ——— */
 
+  async function pushMatchToYouTube(match) {
+    if (!match) return null;
+    const settings = SWHub.loadSettings();
+    const payload = {
+      matchId: match.id || match.matchId || "",
+      homeTeam: match.homeTeam || "",
+      awayTeam: match.awayTeam || "",
+      date: match.date || "",
+      time: match.time || "",
+      ground: match.ground || match.venue || "",
+      clubLabel: settings.clubLabel || "Lullington Park CC",
+    };
+    try {
+      const res = await fetch("/api/youtube/match-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await res.json().catch(() => ({}));
+      return j;
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  }
+
+  async function refreshYoutubeStatus() {
+    const el = document.getElementById("yt-oauth-status");
+    if (!el) return null;
+    try {
+      const res = await fetch(`/api/youtube/oauth/status?_=${Date.now()}`, { cache: "no-store" });
+      const j = await res.json();
+      if (!j.configured) {
+        el.innerHTML =
+          `<span class="muted">YouTube API not configured on server (env YOUTUBE_CLIENT_ID / SECRET).</span>`;
+        return j;
+      }
+      if (j.connected) {
+        el.innerHTML = `<span class="yt-oauth-ok">Connected${
+          j.channelTitle ? " · " + esc(j.channelTitle) : ""
+        }</span>`;
+      } else {
+        el.innerHTML = `<span class="muted">Not connected — tap Connect YouTube once (Lullington Live account).</span>`;
+      }
+      return j;
+    } catch (e) {
+      el.innerHTML = `<span class="muted">Could not check YouTube status.</span>`;
+      return null;
+    }
+  }
+
   async function viewSettings() {
     setOverlayMode(false);
     setNav("settings");
     const s = SWHub.loadSettings();
     const url = overlayUrl();
+
+    // OAuth return messages
+    const params = route().params;
+    const ytFlag = params.get("youtube") || "";
 
     main().innerHTML = `
       <div class="settings-page">
@@ -375,9 +429,29 @@
         <p class="lead">Choose the fixture for the scoreboard overlay, and copy the Moblin browser URL.</p>
 
         <div class="card">
+          <h2>YouTube live title &amp; description</h2>
+          <p class="muted" style="margin:0 0 10px;font-size:0.85rem">
+            Connect the <strong>Lullington Live</strong> Google account once.
+            When you select a fixture below, we update the current YouTube live
+            <strong>title</strong> and <strong>description</strong> with match details.
+          </p>
+          <p id="yt-oauth-status" class="muted" style="margin:0 0 12px;font-size:0.85rem">Checking…</p>
+          <div class="row-actions">
+            <a class="btn btn-primary" id="btn-yt-connect" href="/api/youtube/oauth/start">Connect YouTube</a>
+            <button type="button" class="btn btn-sm" id="btn-yt-push">Push selected match now</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btn-yt-disconnect">Disconnect</button>
+          </div>
+          <p class="muted" style="margin:10px 0 0;font-size:0.8rem">
+            Tip: start or schedule the stream in YouTube Studio first, then select the fixture.
+            After Connect, copy <code>YOUTUBE_REFRESH_TOKEN</code> from server logs into Render if redeploys drop the link.
+          </p>
+        </div>
+
+        <div class="card">
           <h2>Fixture for overlay</h2>
           <p class="muted" style="margin:0 0 12px;font-size:0.85rem">
             This match is shown on the Moblin / OBS scoreboard overlay.
+            Selecting a fixture also updates YouTube (if connected).
           </p>
           <div class="row-actions" style="margin-bottom:12px">
             <button type="button" class="btn btn-sm btn-primary" id="btn-demo">Select demo match</button>
@@ -409,6 +483,11 @@
     const badge = document.getElementById("match-badge");
     const selectedLabel = document.getElementById("selected-label");
 
+    if (ytFlag === "connected") toast("YouTube connected");
+    if (ytFlag === "error") {
+      toast("YouTube connect failed: " + (params.get("msg") || "error"));
+    }
+
     function updateSelectedLabel() {
       const set = SWHub.loadSettings();
       const id = set.selectedMatchId || "";
@@ -419,6 +498,35 @@
           : id
             ? `Selected match #${id}`
             : "No fixture selected — pick demo or a live match";
+      }
+    }
+
+    async function onFixtureChosen(match, isDemo) {
+      try {
+        if (match && SWHub.publishSharedScoreboard) {
+          await SWHub.publishSharedScoreboard(match);
+        }
+      } catch (e) {
+        console.warn("[settings] publish shared", e);
+      }
+      // Update YouTube live title/description when connected
+      const yt = await pushMatchToYouTube(match);
+      if (yt?.ok) {
+        toast(
+          isDemo
+            ? "Demo selected · YouTube title updated"
+            : "Fixture selected · YouTube title/description updated"
+        );
+      } else if (yt && yt.error && /not connected|Not connected/i.test(yt.error)) {
+        toast(isDemo ? "Demo fixture selected" : "Fixture selected for overlay");
+      } else if (yt && yt.error) {
+        toast(
+          (isDemo ? "Demo selected. " : "Fixture selected. ") +
+            "YouTube: " +
+            (yt.error.length > 80 ? yt.error.slice(0, 77) + "…" : yt.error)
+        );
+      } else {
+        toast(isDemo ? "Demo fixture selected" : "Fixture selected for overlay");
       }
     }
 
@@ -462,16 +570,11 @@
               match = cachedMatches.find((x) => String(x.id) === String(id)) || {
                 id,
                 site: btn.getAttribute("data-site") || "",
+                homeTeam: btn.querySelector(".teams")?.textContent?.split(" vs ")[0] || "",
+                awayTeam: btn.querySelector(".teams")?.textContent?.split(" vs ")[1] || "",
               };
             }
-            try {
-              if (match && SWHub.publishSharedScoreboard) {
-                await SWHub.publishSharedScoreboard(match);
-              }
-            } catch (e) {
-              console.warn("[settings] publish shared", e);
-            }
-            toast(isDemo ? "Demo fixture selected" : "Fixture selected for overlay");
+            await onFixtureChosen(match, isDemo);
             paintMatches();
           });
         });
@@ -480,17 +583,45 @@
       }
     }
 
-    document.getElementById("btn-demo")?.addEventListener("click", () => {
-      selectDemoMatch();
-      toast("Demo fixture selected");
+    document.getElementById("btn-demo")?.addEventListener("click", async () => {
+      const match = selectDemoMatch();
+      await onFixtureChosen(match, true);
       paintMatches();
     });
     document.getElementById("btn-refresh-matches")?.addEventListener("click", () => paintMatches());
     document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
       copyText(overlayUrl(), "Overlay URL copied — paste into Moblin Browser widget");
     });
+    document.getElementById("btn-yt-push")?.addEventListener("click", async () => {
+      const set = SWHub.loadSettings();
+      const id = set.selectedMatchId;
+      let match =
+        cachedMatches.find((x) => String(x.id) === String(id)) ||
+        (SWDemo?.isDemoId?.(id) ? SWHub.getDemoMatch() : null);
+      if (!match && id) {
+        match = { id, site: set.selectedSite, homeTeam: "Home", awayTeam: "Away" };
+      }
+      if (!match) {
+        toast("Select a fixture first");
+        return;
+      }
+      toast("Updating YouTube…");
+      const yt = await pushMatchToYouTube(match);
+      if (yt?.ok) toast("YouTube title/description updated");
+      else toast(yt?.error || "YouTube update failed");
+    });
+    document.getElementById("btn-yt-disconnect")?.addEventListener("click", async () => {
+      try {
+        await fetch("/api/youtube/oauth/disconnect", { method: "POST" });
+        toast("YouTube disconnected on this server");
+      } catch {
+        toast("Disconnect failed");
+      }
+      refreshYoutubeStatus();
+    });
 
     if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();
+    await refreshYoutubeStatus();
     await paintMatches();
     stopActivePoll();
   }
