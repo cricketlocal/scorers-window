@@ -82,7 +82,7 @@
         ? location.origin
         : "https://scorers-window-live.onrender.com";
     // Server HTML + meta refresh (Moblin-proof). 12s slots → 80/10/10 over ~2 min.
-    return `${origin}/scoreboard?matchId=7236091&refresh=12`;
+    return `${origin}/scoreboard?matchId=7236091&refresh=10`;
   }
 
   async function copyText(text, okMsg) {
@@ -466,14 +466,14 @@
           <h2>Moblin overlay URL</h2>
           <p class="muted" style="margin:0 0 8px;font-size:0.85rem">
             Use this URL in Moblin <strong>Browser</strong> widget (or keep <code>#/overlay</code> — it redirects here).
-            Rotates: <strong>80%</strong> live score · <strong>10%</strong> match stats · <strong>10%</strong> batters/bowlers
-            (reloads every 12s from Play-Cricket — works when the phone throttles JS).
-            Size ~ full width × 220–400 high, bottom of scene.
+            Rotates: <strong>~75%</strong> scores · batters · bowlers · run-rate/RRR
+            (reloads every 10s from Play-Cricket — works when the phone throttles JS).
+            Full width, bottom of the browser widget.
           </p>
           <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
           <div class="row-actions">
             <button type="button" class="btn btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
-            <a class="btn btn-ghost" href="/scoreboard?matchId=7236091&refresh=12" target="_blank" rel="noopener">Preview overlay</a>
+            <a class="btn btn-ghost" href="/scoreboard?matchId=7236091&refresh=10" target="_blank" rel="noopener">Preview overlay</a>
           </div>
         </div>
       </div>
@@ -631,7 +631,7 @@
   async function viewOverlay() {
     // Same URL Moblin already uses (#/overlay) → reliable server scoreboard
     location.replace(
-      `/scoreboard?matchId=${encodeURIComponent(TODAY_SCOREBOARD.matchId)}&refresh=12`
+      `/scoreboard?matchId=${encodeURIComponent(TODAY_SCOREBOARD.matchId)}&refresh=10`
     );
   }
 

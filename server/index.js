@@ -106,13 +106,14 @@ app.get("/api/matchday/scoreboard", (req, res) =>
  * Reliable Moblin/OBS scoreboard (NO client JS timers).
  * Full page reload via meta refresh — works when WebViews freeze setInterval.
  *
- * Rotation over a 2-minute cycle (10 × 12s slots) ≈ NV Play-style:
- *   slots 0–7 (80%)  → live scoreboard
- *   slot  8   (10%)  → match stats
- *   slot  9   (10%)  → batters / bowlers
+ * 4-panel rotation over a 2-minute cycle (12 × 10s slots):
+ *   slots 0–8 (75%)  → 1) scores totals (main board)
+ *   slot  9   (~8%)  → 2) batters totals
+ *   slot 10   (~8%)  → 3) bowlers / balls
+ *   slot 11   (~8%)  → 4) run-rate graph + RRR needed
  *
  * GET /scoreboard
- * GET /scoreboard?matchId=7236091&refresh=12
+ * GET /scoreboard?matchId=7236091&refresh=10
  * (#/overlay redirects here)
  */
 const DEFAULT_OVERLAY_MATCH = {
@@ -121,8 +122,9 @@ const DEFAULT_OVERLAY_MATCH = {
   homeTeam: "Lullington Park CC - 2nd XI",
   awayTeam: "Rosehill CC - 1st XI",
 };
-/** Seconds per panel; 10 panels = 120s cycle (80/10/10) */
-const OVERLAY_SLOT_SECS = 12;
+/** Seconds per panel; 12 panels = 120s cycle (~75% score) */
+const OVERLAY_SLOT_SECS = 10;
+const OVERLAY_CYCLE_SLOTS = 12;
 
 function escHtml(s) {
   return String(s ?? "")
@@ -193,13 +195,158 @@ function extractBowlers(inn) {
   return [...inn.bowling]
     .filter((b) => b && b.name)
     .sort((a, b) => Number(b.overs || 0) - Number(a.overs || 0))
-    .slice(0, 2)
+    .slice(0, 3)
     .map((b) => ({
       name: shortPlayerName(b.name),
       figures: `${b.wickets ?? 0}-${b.runs ?? 0}`,
       overs: b.overs != null ? String(b.overs) : "—",
       econ: b.economy != null && b.economy !== "" ? String(b.economy) : "",
+      maidens: b.maidens != null && b.maidens !== "" ? String(b.maidens) : "",
     }));
+}
+
+function oversToBalls(ov) {
+  if (ov == null || ov === "") return null;
+  const s = String(ov).trim();
+  const m = s.match(/^(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  const whole = Number(m[1]);
+  const part = Number(m[2] || 0);
+  // Cricket: 20.3 = 20 overs + 3 balls
+  const balls = part > 5 ? Math.min(part, 5) : part;
+  return whole * 6 + balls;
+}
+
+function ballsToOversDisplay(balls) {
+  if (balls == null || balls < 0) return null;
+  const o = Math.floor(balls / 6);
+  const b = balls % 6;
+  return b ? `${o}.${b}` : String(o);
+}
+
+function guessMaxOvers(data) {
+  const blob = [
+    data?.homeTeam,
+    data?.awayTeam,
+    data?.divisionName,
+    data?.summary?.divisionName,
+    data?.status,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/\bt20\b|twenty20|20 overs/.test(blob)) return 20;
+  if (/\bu11\b|\bu13\b|\bu9\b|kwik/.test(blob)) return 20;
+  if (/\bu15\b|\bu17\b/.test(blob)) return 20;
+  // Default senior limited overs (DCCL-style)
+  return 45;
+}
+
+/**
+ * Chase / RRR when second innings is in progress.
+ * Returns { target, need, remOvers, rrr, curRr, battingSide } or null.
+ */
+function extractChaseInfo(data, hs, as) {
+  const inns = data?.scorecard?.innings;
+  if (!Array.isArray(inns) || inns.length < 1) return null;
+  const first = inns[0];
+  const second = inns.length >= 2 ? inns[inns.length - 1] : null;
+  // First innings total from batting card if possible
+  let firstTotal = null;
+  if (first?.batting && Array.isArray(first.batting)) {
+    // Prefer explicit total on innings
+  }
+  if (first?.runs != null && first.runs !== "") firstTotal = Number(first.runs);
+  if (firstTotal == null && first?.total != null) firstTotal = Number(first.total);
+  // Fall back: the side that is NOT currently "active" may have full score in home/away
+  const hp = parseScoreLine(hs);
+  const ap = parseScoreLine(as);
+  // Heuristic: if one side is all out or has more overs completed as "first"
+  if (firstTotal == null) {
+    // Use higher completed innings or the non-chasing score from labels
+    const homeAllOut = /all\s*out/i.test(String(hs));
+    const awayAllOut = /all\s*out/i.test(String(as));
+    if (homeAllOut && hp.runs != null) firstTotal = Number(hp.runs);
+    else if (awayAllOut && ap.runs != null) firstTotal = Number(ap.runs);
+    else if (inns.length >= 2) {
+      // Prefer the first score line that has overs matching first innings team
+      if (hp.runs != null && ap.runs != null) {
+        // Second innings is usually the lower overs count if still batting
+        const hBalls = oversToBalls(hp.overs) || 0;
+        const aBalls = oversToBalls(ap.overs) || 0;
+        if (hBalls && aBalls) {
+          firstTotal = hBalls >= aBalls ? Number(hp.runs) : Number(ap.runs);
+        }
+      }
+    }
+  }
+  if (firstTotal == null || Number.isNaN(firstTotal)) return null;
+
+  const target = firstTotal + 1;
+  // Current batting total = second innings score
+  let cur = null;
+  let battingSide = "chase";
+  if (second) {
+    // Match second innings team to home/away scores
+    const team = String(second.team || "").toLowerCase();
+    const homeT = String(data.homeTeam || "").toLowerCase();
+    const awayT = String(data.awayTeam || "").toLowerCase();
+    if (team && homeT.includes(team.slice(0, 12))) {
+      cur = hp;
+      battingSide = "home";
+    } else if (team && awayT.includes(team.slice(0, 12))) {
+      cur = ap;
+      battingSide = "away";
+    }
+  }
+  if (!cur || cur.runs == null) {
+    // Pick the side with fewer balls faced as "current" if both set
+    const hB = oversToBalls(hp.overs);
+    const aB = oversToBalls(ap.overs);
+    if (hB != null && aB != null) {
+      if (hB <= aB) {
+        cur = hp;
+        battingSide = "home";
+      } else {
+        cur = ap;
+        battingSide = "away";
+      }
+    } else if (hp.runs != null && !/all\s*out/i.test(String(hs))) {
+      cur = hp;
+      battingSide = "home";
+    } else if (ap.runs != null) {
+      cur = ap;
+      battingSide = "away";
+    }
+  }
+  if (!cur || cur.runs == null) return null;
+
+  const need = Math.max(0, target - Number(cur.runs));
+  const maxOv = guessMaxOvers(data);
+  const facedBalls = oversToBalls(cur.overs);
+  const maxBalls = maxOv * 6;
+  const remBalls =
+    facedBalls != null ? Math.max(0, maxBalls - facedBalls) : null;
+  const remOvers = remBalls != null ? remBalls / 6 : null;
+  const rrr =
+    remOvers != null && remOvers > 0 ? need / remOvers : need > 0 ? null : 0;
+  const curRr =
+    cur.overs && Number(cur.runs) >= 0
+      ? runRateFromScore(
+          `${cur.runs} / ${cur.wkts || 0} (${cur.overs})`
+        )
+      : null;
+
+  return {
+    target,
+    need,
+    remOvers: remOvers != null ? Number(remOvers.toFixed(1)) : null,
+    remOversDisplay: remBalls != null ? ballsToOversDisplay(remBalls) : null,
+    rrr: rrr != null && Number.isFinite(rrr) ? rrr : null,
+    curRr,
+    battingSide,
+    maxOvers: maxOv,
+  };
 }
 
 function buildMatchStats(data, hs, as) {
@@ -251,14 +398,15 @@ async function fetchMatchForOverlay(matchId, site) {
 }
 
 /**
- * Panel for this moment:
- * slot 0–7 score (80%), 8 stats (10%), 9 players (10%)
+ * Panel for this moment (12-slot cycle):
+ * 0–8 score (75%), 9 batters, 10 bowlers, 11 runrate
  */
 function overlayPanelIndex(nowMs = Date.now()) {
-  const slot = Math.floor(nowMs / (OVERLAY_SLOT_SECS * 1000)) % 10;
-  if (slot <= 7) return "score";
-  if (slot === 8) return "stats";
-  return "players";
+  const slot = Math.floor(nowMs / (OVERLAY_SLOT_SECS * 1000)) % OVERLAY_CYCLE_SLOTS;
+  if (slot <= 8) return "score";
+  if (slot === 9) return "batters";
+  if (slot === 10) return "bowlers";
+  return "runrate";
 }
 
 /** Run rate from score line e.g. "126 / 4 (27)" → 4.67 */
@@ -368,9 +516,31 @@ function overlayShellCss() {
       background: linear-gradient(90deg, #16a34a, #4ade80);
     }
     .rr-fill.away { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+    .rr-fill.need { background: linear-gradient(90deg, #c2410c, #fb923c); }
     .rr-val {
       font-size: clamp(0.95rem, 3.4vw, 1.15rem); font-weight: 900;
       font-variant-numeric: tabular-nums; color: #ecfdf5; min-width: 2.6rem; text-align: right;
+    }
+    .panel-sub {
+      font-size: clamp(0.8rem, 2.8vw, 0.95rem); font-weight: 700;
+      color: #a7f3d0; margin: 0 0 8px; opacity: 0.95;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .chase-line {
+      font-size: clamp(0.9rem, 3.2vw, 1.1rem); font-weight: 800;
+      color: #fde68a; margin: 0 0 8px; line-height: 1.3;
+    }
+    .chase-line strong { color: #fff; font-weight: 900; }
+    .plist-solo { margin-top: 2px; }
+    .prow.big {
+      font-size: clamp(1.15rem, 4.4vw, 1.45rem); font-weight: 900;
+      margin-bottom: 8px; padding: 4px 0;
+      border-bottom: 1px solid rgba(74, 222, 128, 0.15);
+    }
+    .prow.big .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .prow.big .pstat { color: #4ade80; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .prow.big small {
+      font-size: 0.72em; font-weight: 700; color: #86efac; margin-left: 2px;
     }
     .foot {
       display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;
@@ -400,30 +570,41 @@ function overlayShellCss() {
   `;
 }
 
-function renderRunRateGraph(ctx) {
+function renderRunRateGraph(ctx, opts = {}) {
   const homeRr = ctx.homeRr;
   const awayRr = ctx.awayRr;
-  if (homeRr == null && awayRr == null) return "";
-  const max = Math.max(homeRr || 0, awayRr || 0, 0.01);
-  // Scale bars; leave headroom so fastest isn’t always 100%
-  const scale = max * 1.15;
-  const hPct = homeRr != null ? Math.min(100, Math.round((homeRr / scale) * 100)) : 0;
-  const aPct = awayRr != null ? Math.min(100, Math.round((awayRr / scale) * 100)) : 0;
-  const hLab = homeRr != null ? homeRr.toFixed(2) : "—";
-  const aLab = awayRr != null ? awayRr.toFixed(2) : "—";
+  const chase = ctx.chase;
+  const showRrr = !!opts.showRrr && chase && chase.rrr != null;
+  if (homeRr == null && awayRr == null && !showRrr) {
+    return `<div class="muted" style="margin-top:8px">Run rates appear when overs are scored.</div>`;
+  }
+  const max = Math.max(homeRr || 0, awayRr || 0, showRrr ? chase.rrr : 0, 0.01);
+  const scale = max * 1.2;
+  const pct = (v) =>
+    v != null ? Math.min(100, Math.round((Number(v) / scale) * 100)) : 0;
+  const lab = (v) => (v != null && Number.isFinite(v) ? Number(v).toFixed(2) : "—");
   return `
     <div class="rr" aria-label="Run rate home versus away">
-      <div class="rr-title">Run rate · Home vs Away</div>
+      <div class="rr-title">${showRrr ? "Run rate · RRR needed" : "Run rate · Home vs Away"}</div>
       <div class="rr-row">
         <span class="rr-lab">${escHtml(ctx.homeShort || "Home")}</span>
-        <div class="rr-track"><div class="rr-fill" style="width:${hPct}%"></div></div>
-        <span class="rr-val">${escHtml(hLab)}</span>
+        <div class="rr-track"><div class="rr-fill" style="width:${pct(homeRr)}%"></div></div>
+        <span class="rr-val">${escHtml(lab(homeRr))}</span>
       </div>
       <div class="rr-row">
         <span class="rr-lab">${escHtml(ctx.awayShort || "Away")}</span>
-        <div class="rr-track"><div class="rr-fill away" style="width:${aPct}%"></div></div>
-        <span class="rr-val">${escHtml(aLab)}</span>
+        <div class="rr-track"><div class="rr-fill away" style="width:${pct(awayRr)}%"></div></div>
+        <span class="rr-val">${escHtml(lab(awayRr))}</span>
       </div>
+      ${
+        showRrr
+          ? `<div class="rr-row">
+        <span class="rr-lab">Need</span>
+        <div class="rr-track"><div class="rr-fill need" style="width:${pct(chase.rrr)}%"></div></div>
+        <span class="rr-val">${escHtml(lab(chase.rrr))}</span>
+      </div>`
+          : ""
+      }
     </div>`;
 }
 
@@ -445,72 +626,99 @@ function renderScorePanel(ctx) {
         <div class="score">${escHtml(as)}</div>
       </div>
     </div>
-    ${renderRunRateGraph(ctx)}
     <div class="foot">
       <span>${escHtml(updated)}</span>
     </div>`;
 }
 
-function renderStatsPanel(ctx) {
-  const { status, statsRows, updated } = ctx;
-  const cells = statsRows
-    .map(
-      (r) =>
-        `<div class="stat"><em>${escHtml(r.label)}</em><strong>${escHtml(r.value)}</strong></div>`
-    )
-    .join("");
-  return `
-    <div class="top">
-      <span class="live stats">MATCH STATS</span>
-      <span class="status">${escHtml(status)}</span>
-    </div>
-    <div class="stats-grid">${cells}</div>
-    ${renderRunRateGraph(ctx)}
-    <div class="foot">
-      <span>${escHtml(updated)}</span>
-    </div>`;
-}
-
-function renderPlayersPanel(ctx) {
-  const { batters, bowlers, status, updated } = ctx;
+function renderBattersPanel(ctx) {
+  const { batters, status, updated, home, away } = ctx;
   const batHtml = batters.length
     ? batters
         .map(
           (b) =>
-            `<div class="prow">${escHtml(b.name)} <span>${escHtml(b.runs)}${
-              b.balls !== "—" ? ` (${escHtml(b.balls)})` : ""
-            }</span></div>`
+            `<div class="prow big">
+              <span class="pname">${escHtml(b.name)}</span>
+              <span class="pstat">${escHtml(b.runs)}${
+                b.balls !== "—" ? ` <small>(${escHtml(b.balls)})</small>` : ""
+              }${b.sr ? ` <small>SR ${escHtml(b.sr)}</small>` : ""}</span>
+            </div>`
         )
         .join("")
     : `<div class="muted">Waiting for batters…</div>`;
+  return `
+    <div class="top">
+      <span class="live players">BATTERS</span>
+      <span class="status">${escHtml(status)}</span>
+    </div>
+    <div class="panel-sub">${escHtml(home)} vs ${escHtml(away)}</div>
+    <div class="plist-solo">${batHtml}</div>
+    <div class="foot"><span>${escHtml(updated)}</span></div>`;
+}
+
+function renderBowlersPanel(ctx) {
+  const { bowlers, status, updated, home, away } = ctx;
   const bowlHtml = bowlers.length
     ? bowlers
         .map(
           (b) =>
-            `<div class="prow">${escHtml(b.name)} <span>${escHtml(b.figures)} · ${escHtml(
-              b.overs
-            )}ov</span></div>`
+            `<div class="prow big">
+              <span class="pname">${escHtml(b.name)}</span>
+              <span class="pstat">${escHtml(b.figures)}
+                <small>· ${escHtml(b.overs)}ov${
+                  b.econ ? ` · E ${escHtml(b.econ)}` : ""
+                }</small>
+              </span>
+            </div>`
         )
         .join("")
     : `<div class="muted">Waiting for bowlers…</div>`;
   return `
     <div class="top">
-      <span class="live players">BATTERS · BOWLERS</span>
+      <span class="live players">BOWLERS</span>
       <span class="status">${escHtml(status)}</span>
     </div>
-    <div class="plist">
-      <div class="pcol"><h3>Batters</h3>${batHtml}</div>
-      <div class="pcol"><h3>Bowlers</h3>${bowlHtml}</div>
+    <div class="panel-sub">${escHtml(home)} vs ${escHtml(away)}</div>
+    <div class="plist-solo">${bowlHtml}</div>
+    <div class="foot"><span>${escHtml(updated)}</span></div>`;
+}
+
+function renderRunRatePanel(ctx) {
+  const { status, updated, chase } = ctx;
+  const chaseBits =
+    chase && chase.target != null
+      ? `<div class="chase-line">
+          Target <strong>${escHtml(String(chase.target))}</strong>
+          · Need <strong>${escHtml(String(chase.need))}</strong>
+          ${
+            chase.remOversDisplay != null
+              ? ` · <strong>${escHtml(String(chase.remOversDisplay))}</strong> ov left`
+              : ""
+          }
+          ${
+            chase.rrr != null
+              ? ` · RRR <strong>${escHtml(chase.rrr.toFixed(2))}</strong>`
+              : ""
+          }
+        </div>`
+      : `<div class="panel-sub">RRR shows in the second innings when a target is known.</div>`;
+  return `
+    <div class="top">
+      <span class="live stats">RUN RATE</span>
+      <span class="status">${escHtml(status)}</span>
     </div>
-    <div class="foot">
-      <span>${escHtml(updated)}</span>
-    </div>`;
+    ${chaseBits}
+    ${renderRunRateGraph(ctx, { showRrr: true })}
+    <div class="foot"><span>${escHtml(updated)}</span></div>`;
 }
 
 function renderScoreboardHtml(data, opts = {}) {
-  // Default 12s so 10-slot cycle ≈ 2 minutes (80/10/10)
+  // Default 10s; 12-slot cycle ≈ 2 minutes (75% score / 3 secondary panels)
   const refresh = Math.max(8, Math.min(120, Number(opts.refresh) || OVERLAY_SLOT_SECS));
-  const panel = opts.panel || overlayPanelIndex();
+  let panel = opts.panel || overlayPanelIndex();
+  // Accept legacy query values
+  if (panel === "stats") panel = "runrate";
+  if (panel === "players") panel = "batters";
   const home = shortTeamName(data.homeTeam || DEFAULT_OVERLAY_MATCH.homeTeam);
   const away = shortTeamName(data.awayTeam || DEFAULT_OVERLAY_MATCH.awayTeam);
   const hs = pickScoreVal(data.homeScore, data.summary?.homeScore);
@@ -527,10 +735,9 @@ function renderScoreboardHtml(data, opts = {}) {
   const inn = currentInnings(data);
   const batters = extractBatters(inn);
   const bowlers = extractBowlers(inn);
-  const statsRows = buildMatchStats(data, hs, as);
   const homeRr = runRateFromScore(hs);
   const awayRr = runRateFromScore(as);
-  // Short labels for RR graph (first word / XI)
+  const chase = extractChaseInfo(data, hs, as);
   const homeShort = String(home).split(/\s+/).slice(0, 2).join(" ") || "Home";
   const awayShort = String(away).split(/\s+/).slice(0, 2).join(" ") || "Away";
 
@@ -543,18 +750,19 @@ function renderScoreboardHtml(data, opts = {}) {
     as,
     homeRr,
     awayRr,
+    chase,
     badge,
     status,
     mid,
     updated,
-    statsRows,
     batters,
     bowlers,
   };
 
   let bodyInner = "";
-  if (panel === "stats") bodyInner = renderStatsPanel(ctx);
-  else if (panel === "players") bodyInner = renderPlayersPanel(ctx);
+  if (panel === "batters") bodyInner = renderBattersPanel(ctx);
+  else if (panel === "bowlers") bodyInner = renderBowlersPanel(ctx);
+  else if (panel === "runrate") bodyInner = renderRunRatePanel(ctx);
   else bodyInner = renderScorePanel(ctx);
 
   return `<!DOCTYPE html>
@@ -578,12 +786,12 @@ function renderScoreboardHtml(data, opts = {}) {
 app.get("/scoreboard", async (req, res) => {
   const matchId = String(req.query.matchId || DEFAULT_OVERLAY_MATCH.matchId);
   const site = String(req.query.site || DEFAULT_OVERLAY_MATCH.site);
-  // Default slot length 12s for 80/10/10 rotation; ?refresh= overrides
+  // Default 10s slots · 12-slot cycle (75% score); ?refresh= overrides
   const refresh = Number(req.query.refresh || OVERLAY_SLOT_SECS);
-  const panel =
-    req.query.panel === "score" || req.query.panel === "stats" || req.query.panel === "players"
-      ? req.query.panel
-      : overlayPanelIndex();
+  const allowed = new Set(["score", "batters", "bowlers", "runrate", "stats", "players"]);
+  const panel = allowed.has(String(req.query.panel || ""))
+    ? String(req.query.panel)
+    : overlayPanelIndex();
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.set("Pragma", "no-cache");
   try {
