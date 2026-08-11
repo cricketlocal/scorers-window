@@ -261,52 +261,174 @@ function overlayPanelIndex(nowMs = Date.now()) {
   return "players";
 }
 
+/** Run rate from score line e.g. "126 / 4 (27)" → 4.67 */
+function runRateFromScore(line) {
+  const p = parseScoreLine(line);
+  if (p.runs == null || !p.overs) return null;
+  const ov = parseFloat(String(p.overs).replace(/[^0-9.]/g, ""));
+  if (!ov || ov <= 0 || Number.isNaN(ov)) return null;
+  return Number(p.runs) / ov;
+}
+
 function overlayShellCss() {
   return `
-    html, body { margin: 0; padding: 0; background: transparent; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #ecfdf5; }
-    .bar {
-      margin: 0 2% 2.5%;
-      padding: 10px 14px 12px;
-      border-radius: 12px;
-      background: rgba(6, 20, 13, 0.88);
-      border: 1px solid rgba(74, 222, 128, 0.45);
-      box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: transparent;
     }
-    .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .live { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; color: #fca5a5; }
+    html { height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #ecfdf5;
+      min-height: 100vh;
+      min-height: 100dvh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: stretch;
+      box-sizing: border-box;
+    }
+    /* Full-width bar pinned to bottom of the widget window */
+    .bar {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 12px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+      border-radius: 0;
+      background: rgba(6, 20, 13, 0.92);
+      border: none;
+      border-top: 2px solid rgba(74, 222, 128, 0.55);
+      box-shadow: 0 -8px 28px rgba(0,0,0,0.5);
+    }
+    .top {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; margin-bottom: 8px;
+    }
+    .live {
+      font-size: clamp(0.85rem, 3.2vw, 1.05rem);
+      font-weight: 900; letter-spacing: 0.1em; color: #fecaca;
+    }
     .live::before {
-      content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-      background: #ef4444; box-shadow: 0 0 6px #ef4444; margin-right: 5px; vertical-align: middle;
+      content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      background: #ef4444; box-shadow: 0 0 8px #ef4444; margin-right: 7px; vertical-align: middle;
     }
     .live.stats { color: #93c5fd; }
-    .live.stats::before { background: #3b82f6; box-shadow: 0 0 6px #3b82f6; }
+    .live.stats::before { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
     .live.players { color: #fde68a; }
-    .live.players::before { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
-    .status { font-size: 0.7rem; color: #a7f3d0; opacity: 0.95; text-align: right; max-width: 60%;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .teams { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
-    .name { font-size: clamp(0.9rem, 2.2vw, 1.15rem); font-weight: 800; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis; }
+    .live.players::before { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+    .status {
+      font-size: clamp(0.8rem, 2.8vw, 0.95rem); font-weight: 700;
+      color: #a7f3d0; text-align: right; max-width: 62%;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .teams {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 10px; align-items: center;
+    }
+    .name {
+      font-size: clamp(1.05rem, 4.2vw, 1.45rem); font-weight: 900;
+      line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .away { text-align: right; }
-    .score { font-size: clamp(1.2rem, 3vw, 1.65rem); font-weight: 800; font-variant-numeric: tabular-nums; color: #4ade80; }
-    .vs { font-size: 0.75rem; font-weight: 800; opacity: 0.7; }
-    .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px;
-      font-size: 0.65rem; color: #86efac; opacity: 0.9; }
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 4px; }
+    .score {
+      font-size: clamp(1.55rem, 6.5vw, 2.25rem); font-weight: 900;
+      font-variant-numeric: tabular-nums; color: #4ade80; line-height: 1.1; margin-top: 2px;
+    }
+    .vs {
+      font-size: clamp(0.85rem, 3vw, 1.05rem); font-weight: 900; opacity: 0.75;
+      letter-spacing: 0.06em;
+    }
+    /* Home vs Away run-rate bars */
+    .rr {
+      margin-top: 10px; padding-top: 8px;
+      border-top: 1px solid rgba(74, 222, 128, 0.22);
+    }
+    .rr-title {
+      font-size: clamp(0.7rem, 2.4vw, 0.8rem); font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase; color: #86efac;
+      margin: 0 0 6px; opacity: 0.95;
+    }
+    .rr-row {
+      display: grid; grid-template-columns: minmax(4.5rem, 28%) 1fr auto;
+      gap: 8px; align-items: center; margin-bottom: 5px;
+    }
+    .rr-row:last-child { margin-bottom: 0; }
+    .rr-lab {
+      font-size: clamp(0.85rem, 3vw, 1rem); font-weight: 800;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .rr-track {
+      height: clamp(12px, 3.2vw, 16px); border-radius: 999px;
+      background: rgba(255,255,255,0.1); overflow: hidden;
+    }
+    .rr-fill {
+      height: 100%; border-radius: 999px; min-width: 0;
+      background: linear-gradient(90deg, #16a34a, #4ade80);
+    }
+    .rr-fill.away { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+    .rr-val {
+      font-size: clamp(0.95rem, 3.4vw, 1.15rem); font-weight: 900;
+      font-variant-numeric: tabular-nums; color: #ecfdf5; min-width: 2.6rem; text-align: right;
+    }
+    .foot {
+      display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;
+      font-size: clamp(0.7rem, 2.4vw, 0.8rem); font-weight: 700; color: #86efac; opacity: 0.85;
+    }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-top: 4px; }
     .stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .stat em { font-style: normal; font-size: 0.62rem; color: #86efac; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.04em; }
-    .stat strong { font-size: 0.95rem; font-weight: 800; color: #ecfdf5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .plist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-    .pcol h3 { margin: 0 0 4px; font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: #86efac; opacity: 0.9; }
-    .prow { display: flex; justify-content: space-between; gap: 8px; font-size: 0.88rem; font-weight: 700; margin-bottom: 3px; }
+    .stat em {
+      font-style: normal; font-size: clamp(0.7rem, 2.4vw, 0.8rem); font-weight: 800;
+      color: #86efac; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .stat strong {
+      font-size: clamp(1.1rem, 4vw, 1.4rem); font-weight: 900; color: #ecfdf5;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .plist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+    .pcol h3 {
+      margin: 0 0 6px; font-size: clamp(0.7rem, 2.4vw, 0.8rem); font-weight: 800;
+      letter-spacing: 0.06em; text-transform: uppercase; color: #86efac;
+    }
+    .prow {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: clamp(1rem, 3.6vw, 1.2rem); font-weight: 800; margin-bottom: 4px;
+    }
     .prow span { color: #4ade80; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .muted { opacity: 0.75; font-size: 0.8rem; font-weight: 600; }
+    .muted { opacity: 0.75; font-size: clamp(0.9rem, 3vw, 1.05rem); font-weight: 700; }
   `;
 }
 
+function renderRunRateGraph(ctx) {
+  const homeRr = ctx.homeRr;
+  const awayRr = ctx.awayRr;
+  if (homeRr == null && awayRr == null) return "";
+  const max = Math.max(homeRr || 0, awayRr || 0, 0.01);
+  // Scale bars; leave headroom so fastest isn’t always 100%
+  const scale = max * 1.15;
+  const hPct = homeRr != null ? Math.min(100, Math.round((homeRr / scale) * 100)) : 0;
+  const aPct = awayRr != null ? Math.min(100, Math.round((awayRr / scale) * 100)) : 0;
+  const hLab = homeRr != null ? homeRr.toFixed(2) : "—";
+  const aLab = awayRr != null ? awayRr.toFixed(2) : "—";
+  return `
+    <div class="rr" aria-label="Run rate home versus away">
+      <div class="rr-title">Run rate · Home vs Away</div>
+      <div class="rr-row">
+        <span class="rr-lab">${escHtml(ctx.homeShort || "Home")}</span>
+        <div class="rr-track"><div class="rr-fill" style="width:${hPct}%"></div></div>
+        <span class="rr-val">${escHtml(hLab)}</span>
+      </div>
+      <div class="rr-row">
+        <span class="rr-lab">${escHtml(ctx.awayShort || "Away")}</span>
+        <div class="rr-track"><div class="rr-fill away" style="width:${aPct}%"></div></div>
+        <span class="rr-val">${escHtml(aLab)}</span>
+      </div>
+    </div>`;
+}
+
 function renderScorePanel(ctx) {
-  const { home, away, hs, as, badge, status, mid, updated, panelLabel } = ctx;
+  const { home, away, hs, as, badge, status, updated } = ctx;
   return `
     <div class="top">
       <span class="live">${escHtml(badge)}</span>
@@ -323,14 +445,14 @@ function renderScorePanel(ctx) {
         <div class="score">${escHtml(as)}</div>
       </div>
     </div>
+    ${renderRunRateGraph(ctx)}
     <div class="foot">
-      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
       <span>${escHtml(updated)}</span>
     </div>`;
 }
 
 function renderStatsPanel(ctx) {
-  const { badge, status, statsRows, mid, updated, panelLabel } = ctx;
+  const { status, statsRows, updated } = ctx;
   const cells = statsRows
     .map(
       (r) =>
@@ -343,14 +465,14 @@ function renderStatsPanel(ctx) {
       <span class="status">${escHtml(status)}</span>
     </div>
     <div class="stats-grid">${cells}</div>
+    ${renderRunRateGraph(ctx)}
     <div class="foot">
-      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
       <span>${escHtml(updated)}</span>
     </div>`;
 }
 
 function renderPlayersPanel(ctx) {
-  const { batters, bowlers, mid, updated, panelLabel, status } = ctx;
+  const { batters, bowlers, status, updated } = ctx;
   const batHtml = batters.length
     ? batters
         .map(
@@ -381,7 +503,6 @@ function renderPlayersPanel(ctx) {
       <div class="pcol"><h3>Bowlers</h3>${bowlHtml}</div>
     </div>
     <div class="foot">
-      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
       <span>${escHtml(updated)}</span>
     </div>`;
 }
@@ -407,19 +528,25 @@ function renderScoreboardHtml(data, opts = {}) {
   const batters = extractBatters(inn);
   const bowlers = extractBowlers(inn);
   const statsRows = buildMatchStats(data, hs, as);
+  const homeRr = runRateFromScore(hs);
+  const awayRr = runRateFromScore(as);
+  // Short labels for RR graph (first word / XI)
+  const homeShort = String(home).split(/\s+/).slice(0, 2).join(" ") || "Home";
+  const awayShort = String(away).split(/\s+/).slice(0, 2).join(" ") || "Away";
 
-  const panelLabel =
-    panel === "score" ? "Score 80%" : panel === "stats" ? "Stats 10%" : "Players 10%";
   const ctx = {
     home,
     away,
+    homeShort,
+    awayShort,
     hs,
     as,
+    homeRr,
+    awayRr,
     badge,
     status,
     mid,
     updated,
-    panelLabel,
     statsRows,
     batters,
     bowlers,
@@ -434,10 +561,10 @@ function renderScoreboardHtml(data, opts = {}) {
 <html lang="en-GB">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta http-equiv="refresh" content="${refresh}" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <title>Scoreboard ${escHtml(mid)} · ${escHtml(panel)}</title>
+  <title>Scoreboard · ${escHtml(panel)}</title>
   <style>${overlayShellCss()}</style>
 </head>
 <body>
