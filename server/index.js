@@ -101,12 +101,16 @@ app.get("/api/matchday/scoreboard", (req, res) =>
 
 /**
  * Reliable Moblin/OBS scoreboard (NO client JS timers).
- * Full page reload every N seconds via meta refresh — works when WebViews freeze setInterval.
+ * Full page reload via meta refresh — works when WebViews freeze setInterval.
+ *
+ * Rotation over a 2-minute cycle (10 × 12s slots) ≈ NV Play-style:
+ *   slots 0–7 (80%)  → live scoreboard
+ *   slot  8   (10%)  → match stats
+ *   slot  9   (10%)  → batters / bowlers
  *
  * GET /scoreboard
- * GET /scoreboard?matchId=7236091&site=https://lpcc.play-cricket.com&refresh=120
- *
- * Point Moblin Browser widget here (not #/overlay SPA).
+ * GET /scoreboard?matchId=7236091&refresh=12
+ * (#/overlay redirects here)
  */
 const DEFAULT_OVERLAY_MATCH = {
   matchId: "7236091",
@@ -114,6 +118,8 @@ const DEFAULT_OVERLAY_MATCH = {
   homeTeam: "Lullington Park CC - 2nd XI",
   awayTeam: "Rosehill CC - 1st XI",
 };
+/** Seconds per panel; 10 panels = 120s cycle (80/10/10) */
+const OVERLAY_SLOT_SECS = 12;
 
 function escHtml(s) {
   return String(s ?? "")
@@ -130,6 +136,14 @@ function shortTeamName(name) {
   return n || "—";
 }
 
+function shortPlayerName(name) {
+  const n = String(name || "").replace(/\*|&dagger;|†/g, "").trim();
+  if (!n) return "—";
+  const parts = n.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return parts[0];
+  return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
+}
+
 function pickScoreVal(...vals) {
   for (const v of vals) {
     if (v == null || v === "") continue;
@@ -137,6 +151,85 @@ function pickScoreVal(...vals) {
     if (s && s !== "–" && s !== "-" && s !== "—") return s;
   }
   return "—";
+}
+
+/** Parse "126 / 4 (27)" → { runs, wkts, overs } */
+function parseScoreLine(line) {
+  const s = String(line || "").trim();
+  const m = s.match(/(\d+)\s*\/\s*(\d+)(?:\s*\(([^)]+)\))?/);
+  if (!m) {
+    const runsOnly = s.match(/^(\d+)/);
+    return { runs: runsOnly ? runsOnly[1] : null, wkts: null, overs: null, raw: s };
+  }
+  return { runs: m[1], wkts: m[2], overs: m[3] || null, raw: s };
+}
+
+function currentInnings(data) {
+  const list = data?.scorecard?.innings;
+  if (!Array.isArray(list) || !list.length) return null;
+  return list[list.length - 1];
+}
+
+function extractBatters(inn) {
+  if (!inn?.batting) return [];
+  return inn.batting
+    .filter((b) => b && !b.didNotBat)
+    .filter((b) => b.notOut || /not\s*out/i.test(String(b.howOut || "")))
+    .slice(0, 2)
+    .map((b) => ({
+      name: shortPlayerName(b.name),
+      runs: b.runs != null && b.runs !== "" ? String(b.runs) : "—",
+      balls: b.balls != null && b.balls !== "" ? String(b.balls) : "—",
+      sr: b.strikeRate != null && b.strikeRate !== "" ? String(b.strikeRate) : "",
+    }));
+}
+
+function extractBowlers(inn) {
+  if (!inn?.bowling) return [];
+  // Prefer bowlers with overs in current spell (most recent non-zero)
+  return [...inn.bowling]
+    .filter((b) => b && b.name)
+    .sort((a, b) => Number(b.overs || 0) - Number(a.overs || 0))
+    .slice(0, 2)
+    .map((b) => ({
+      name: shortPlayerName(b.name),
+      figures: `${b.wickets ?? 0}-${b.runs ?? 0}`,
+      overs: b.overs != null ? String(b.overs) : "—",
+      econ: b.economy != null && b.economy !== "" ? String(b.economy) : "",
+    }));
+}
+
+function buildMatchStats(data, hs, as) {
+  const inn = currentInnings(data);
+  const batting = parseScoreLine(as !== "—" && as ? as : hs);
+  // If only one side has a real score, use that as "current"
+  const cur =
+    as !== "—" && as && as !== "0 / 0 (0)"
+      ? { side: "away", ...parseScoreLine(as) }
+      : { side: "home", ...parseScoreLine(hs) };
+  const rows = [];
+  if (cur.runs != null) rows.push({ label: "Score", value: cur.wkts != null ? `${cur.runs}/${cur.wkts}` : cur.runs });
+  if (cur.overs) rows.push({ label: "Overs", value: cur.overs });
+  if (cur.runs != null && cur.overs) {
+    const ov = parseFloat(String(cur.overs).replace(/[^0-9.]/g, ""));
+    if (ov > 0) {
+      const rr = (Number(cur.runs) / ov).toFixed(2);
+      rows.push({ label: "Run rate", value: rr });
+    }
+  }
+  if (inn?.extras != null && inn.extras !== "") {
+    rows.push({ label: "Extras", value: String(inn.extras).replace(/\s+/g, " ").slice(0, 24) });
+  }
+  if (inn?.fallOfWickets?.length) {
+    const last = inn.fallOfWickets[inn.fallOfWickets.length - 1];
+    if (last?.score) rows.push({ label: "Last wicket", value: String(last.score) });
+  }
+  const div = data.divisionName || data.summary?.divisionName || "";
+  if (div) rows.push({ label: "Competition", value: String(div).slice(0, 36) });
+  if (!rows.length) {
+    rows.push({ label: "Status", value: data.status || "Waiting for live scoring" });
+  }
+  return rows.slice(0, 5);
 }
 
 async function fetchMatchForOverlay(matchId, site) {
@@ -154,27 +247,19 @@ async function fetchMatchForOverlay(matchId, site) {
   return r.json();
 }
 
-function renderScoreboardHtml(data, opts = {}) {
-  const refresh = Math.max(30, Math.min(600, Number(opts.refresh) || 120));
-  const home = shortTeamName(data.homeTeam || DEFAULT_OVERLAY_MATCH.homeTeam);
-  const away = shortTeamName(data.awayTeam || DEFAULT_OVERLAY_MATCH.awayTeam);
-  const hs = pickScoreVal(data.homeScore, data.summary?.homeScore);
-  const as = pickScoreVal(data.awayScore, data.summary?.awayScore);
-  const live = !!(data.live || data.summary?.live);
-  const status = data.status || data.summary?.status || (live ? "Match In Progress" : "Scoreboard");
-  const badge = live ? "LIVE" : "MATCH";
-  const updated = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const mid = data.matchId || data.id || opts.matchId || "";
+/**
+ * Panel for this moment:
+ * slot 0–7 score (80%), 8 stats (10%), 9 players (10%)
+ */
+function overlayPanelIndex(nowMs = Date.now()) {
+  const slot = Math.floor(nowMs / (OVERLAY_SLOT_SECS * 1000)) % 10;
+  if (slot <= 7) return "score";
+  if (slot === 8) return "stats";
+  return "players";
+}
 
-  return `<!DOCTYPE html>
-<html lang="en-GB">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="refresh" content="${refresh}" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <title>Scoreboard ${escHtml(mid)}</title>
-  <style>
+function overlayShellCss() {
+  return `
     html, body { margin: 0; padding: 0; background: transparent; }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #ecfdf5; }
     .bar {
@@ -191,6 +276,10 @@ function renderScoreboardHtml(data, opts = {}) {
       content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
       background: #ef4444; box-shadow: 0 0 6px #ef4444; margin-right: 5px; vertical-align: middle;
     }
+    .live.stats { color: #93c5fd; }
+    .live.stats::before { background: #3b82f6; box-shadow: 0 0 6px #3b82f6; }
+    .live.players { color: #fde68a; }
+    .live.players::before { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
     .status { font-size: 0.7rem; color: #a7f3d0; opacity: 0.95; text-align: right; max-width: 60%;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .teams { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
@@ -201,10 +290,21 @@ function renderScoreboardHtml(data, opts = {}) {
     .vs { font-size: 0.75rem; font-weight: 800; opacity: 0.7; }
     .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px;
       font-size: 0.65rem; color: #86efac; opacity: 0.9; }
-  </style>
-</head>
-<body>
-  <div class="bar" data-match-id="${escHtml(mid)}">
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 4px; }
+    .stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .stat em { font-style: normal; font-size: 0.62rem; color: #86efac; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat strong { font-size: 0.95rem; font-weight: 800; color: #ecfdf5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+    .pcol h3 { margin: 0 0 4px; font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: #86efac; opacity: 0.9; }
+    .prow { display: flex; justify-content: space-between; gap: 8px; font-size: 0.88rem; font-weight: 700; margin-bottom: 3px; }
+    .prow span { color: #4ade80; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .muted { opacity: 0.75; font-size: 0.8rem; font-weight: 600; }
+  `;
+}
+
+function renderScorePanel(ctx) {
+  const { home, away, hs, as, badge, status, mid, updated, panelLabel } = ctx;
+  return `
     <div class="top">
       <span class="live">${escHtml(badge)}</span>
       <span class="status">${escHtml(status)}</span>
@@ -221,9 +321,125 @@ function renderScoreboardHtml(data, opts = {}) {
       </div>
     </div>
     <div class="foot">
-      <span>LPCC · Play-Cricket #${escHtml(mid)}</span>
-      <span>Updated ${escHtml(updated)} · every ${refresh}s</span>
+      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
+      <span>${escHtml(updated)}</span>
+    </div>`;
+}
+
+function renderStatsPanel(ctx) {
+  const { badge, status, statsRows, mid, updated, panelLabel } = ctx;
+  const cells = statsRows
+    .map(
+      (r) =>
+        `<div class="stat"><em>${escHtml(r.label)}</em><strong>${escHtml(r.value)}</strong></div>`
+    )
+    .join("");
+  return `
+    <div class="top">
+      <span class="live stats">MATCH STATS</span>
+      <span class="status">${escHtml(status)}</span>
     </div>
+    <div class="stats-grid">${cells}</div>
+    <div class="foot">
+      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
+      <span>${escHtml(updated)}</span>
+    </div>`;
+}
+
+function renderPlayersPanel(ctx) {
+  const { batters, bowlers, mid, updated, panelLabel, status } = ctx;
+  const batHtml = batters.length
+    ? batters
+        .map(
+          (b) =>
+            `<div class="prow">${escHtml(b.name)} <span>${escHtml(b.runs)}${
+              b.balls !== "—" ? ` (${escHtml(b.balls)})` : ""
+            }</span></div>`
+        )
+        .join("")
+    : `<div class="muted">Waiting for batters…</div>`;
+  const bowlHtml = bowlers.length
+    ? bowlers
+        .map(
+          (b) =>
+            `<div class="prow">${escHtml(b.name)} <span>${escHtml(b.figures)} · ${escHtml(
+              b.overs
+            )}ov</span></div>`
+        )
+        .join("")
+    : `<div class="muted">Waiting for bowlers…</div>`;
+  return `
+    <div class="top">
+      <span class="live players">BATTERS · BOWLERS</span>
+      <span class="status">${escHtml(status)}</span>
+    </div>
+    <div class="plist">
+      <div class="pcol"><h3>Batters</h3>${batHtml}</div>
+      <div class="pcol"><h3>Bowlers</h3>${bowlHtml}</div>
+    </div>
+    <div class="foot">
+      <span>LPCC · #${escHtml(mid)} · ${escHtml(panelLabel)}</span>
+      <span>${escHtml(updated)}</span>
+    </div>`;
+}
+
+function renderScoreboardHtml(data, opts = {}) {
+  // Default 12s so 10-slot cycle ≈ 2 minutes (80/10/10)
+  const refresh = Math.max(8, Math.min(120, Number(opts.refresh) || OVERLAY_SLOT_SECS));
+  const panel = opts.panel || overlayPanelIndex();
+  const home = shortTeamName(data.homeTeam || DEFAULT_OVERLAY_MATCH.homeTeam);
+  const away = shortTeamName(data.awayTeam || DEFAULT_OVERLAY_MATCH.awayTeam);
+  const hs = pickScoreVal(data.homeScore, data.summary?.homeScore);
+  const as = pickScoreVal(data.awayScore, data.summary?.awayScore);
+  const live = !!(data.live || data.summary?.live);
+  const status = data.status || data.summary?.status || (live ? "Match In Progress" : "Scoreboard");
+  const badge = live ? "LIVE" : "MATCH";
+  const updated = new Date().toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const mid = data.matchId || data.id || opts.matchId || "";
+  const inn = currentInnings(data);
+  const batters = extractBatters(inn);
+  const bowlers = extractBowlers(inn);
+  const statsRows = buildMatchStats(data, hs, as);
+
+  const panelLabel =
+    panel === "score" ? "Score 80%" : panel === "stats" ? "Stats 10%" : "Players 10%";
+  const ctx = {
+    home,
+    away,
+    hs,
+    as,
+    badge,
+    status,
+    mid,
+    updated,
+    panelLabel,
+    statsRows,
+    batters,
+    bowlers,
+  };
+
+  let bodyInner = "";
+  if (panel === "stats") bodyInner = renderStatsPanel(ctx);
+  else if (panel === "players") bodyInner = renderPlayersPanel(ctx);
+  else bodyInner = renderScorePanel(ctx);
+
+  return `<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="${refresh}" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>Scoreboard ${escHtml(mid)} · ${escHtml(panel)}</title>
+  <style>${overlayShellCss()}</style>
+</head>
+<body>
+  <div class="bar" data-match-id="${escHtml(mid)}" data-panel="${escHtml(panel)}">
+    ${bodyInner}
   </div>
 </body>
 </html>`;
@@ -232,16 +448,18 @@ function renderScoreboardHtml(data, opts = {}) {
 app.get("/scoreboard", async (req, res) => {
   const matchId = String(req.query.matchId || DEFAULT_OVERLAY_MATCH.matchId);
   const site = String(req.query.site || DEFAULT_OVERLAY_MATCH.site);
-  const refresh = Number(req.query.refresh || 120);
+  // Default slot length 12s for 80/10/10 rotation; ?refresh= overrides
+  const refresh = Number(req.query.refresh || OVERLAY_SLOT_SECS);
+  const panel =
+    req.query.panel === "score" || req.query.panel === "stats" || req.query.panel === "players"
+      ? req.query.panel
+      : overlayPanelIndex();
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.set("Pragma", "no-cache");
   try {
     const data = await fetchMatchForOverlay(matchId, site);
-    res.type("html").send(
-      renderScoreboardHtml(data, { refresh, matchId })
-    );
+    res.type("html").send(renderScoreboardHtml(data, { refresh, matchId, panel }));
   } catch (e) {
-    // Still show teams so stream isn't blank
     res.type("html").send(
       renderScoreboardHtml(
         {
@@ -253,7 +471,7 @@ app.get("/scoreboard", async (req, res) => {
           live: false,
           status: `Waiting for scores (${e.message || "hub error"})`,
         },
-        { refresh, matchId }
+        { refresh, matchId, panel: "score" }
       )
     );
   }
