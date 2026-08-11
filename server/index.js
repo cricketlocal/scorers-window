@@ -602,37 +602,148 @@ async function ytFetch(url) {
 }
 
 async function ytRssLatest(channelId) {
+  const list = await ytRssRecent(channelId, 1);
+  return list[0] || { videoId: "", title: "" };
+}
+
+/** Recent channel uploads from Atom RSS (bypasses consent walls). */
+async function ytRssRecent(channelId, limit = 8) {
   try {
     const r = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
       headers: { "User-Agent": YT_UA, Accept: "application/atom+xml,application/xml,text/xml" },
+      cache: "no-store",
     });
     const xml = await r.text();
-    const id = (xml.match(/<yt:videoId>([a-zA-Z0-9_-]{11})<\/yt:videoId>/) || [])[1] || "";
-    const titles = [...xml.matchAll(/<title>([^<]*)<\/title>/g)].map((m) => m[1]);
-    // first title is channel name; second is latest video
-    const title = titles[1] || titles[0] || "";
-    return { videoId: id, title };
+    const ids = [...xml.matchAll(/<yt:videoId>([a-zA-Z0-9_-]{11})<\/yt:videoId>/g)].map((m) => m[1]);
+    // titles: [channelName, video1, video2, ...]
+    const titles = [...xml.matchAll(/<media:title>([^<]*)<\/media:title>/g)].map((m) => m[1]);
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < ids.length && out.length < limit; i++) {
+      const videoId = ids[i];
+      if (!videoId || seen.has(videoId)) continue;
+      seen.add(videoId);
+      out.push({ videoId, title: titles[i] || "" });
+    }
+    return out;
   } catch {
-    return { videoId: "", title: "" };
+    return [];
   }
 }
 
 async function ytWatchMeta(videoId) {
   try {
     const { html } = await ytFetch(`https://www.youtube.com/watch?v=${videoId}`);
+    // Strong live signals in raw HTML (works even when player JSON parse fails)
+    const liveNowHtml = /"isLiveNow"\s*:\s*true/.test(html);
     const pr = parseYtPlayerResponse(html);
     if (!pr?.videoDetails) {
       const loose = extractVideoIdFromHtml(html, "");
-      return { title: loose.title || "", isLive: loose.isLive };
+      return {
+        title: loose.title || "",
+        isLive: liveNowHtml || loose.isLive,
+      };
     }
     const live = pr.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+    const isLive = live
+      ? !!live.isLiveNow
+      : !!(liveNowHtml || pr.videoDetails.isLiveContent || pr.videoDetails.isLive);
     return {
       title: pr.videoDetails.title || "",
-      isLive: live ? !!live.isLiveNow : !!(pr.videoDetails.isLive || pr.videoDetails.isUpcoming),
+      isLive,
     };
   } catch {
     return { title: "", isLive: false };
   }
+}
+
+/**
+ * Pick the video that is actually LIVE now.
+ * /@handle/live HTML often hits EU consent on Render → empty scrape → stale RSS head.
+ * Always scan recent RSS entries and confirm isLiveNow on each watch page.
+ */
+async function resolveChannelLive(handle, channelId) {
+  const watchUrl = `https://www.youtube.com/@${handle}/live`;
+  let videoId = "";
+  let title = "";
+  let isLive = false;
+  let finalUrl = watchUrl;
+  let source = "";
+
+  // 1) /channel/UC…/live then /@handle/live
+  const pageUrls = [];
+  if (channelId) pageUrls.push(`https://www.youtube.com/channel/${channelId}/live`);
+  pageUrls.push(watchUrl);
+
+  for (const pageUrl of pageUrls) {
+    try {
+      const page = await ytFetch(pageUrl);
+      finalUrl = page.finalUrl;
+      // Consent interstitial = no useful player JSON
+      if (/consent\.youtube\.com/i.test(finalUrl) || /before you continue/i.test(page.html.slice(0, 2000))) {
+        continue;
+      }
+      const extracted = extractVideoIdFromHtml(page.html, page.finalUrl);
+      if (extracted.videoId) {
+        videoId = extracted.videoId;
+        title = extracted.title;
+        isLive = extracted.isLive;
+        source = pageUrl;
+        break;
+      }
+    } catch (e) {
+      console.warn("[channel-live] page fetch", pageUrl, e.message);
+    }
+  }
+
+  // 2) Confirm / upgrade via watch page meta
+  if (videoId) {
+    const meta = await ytWatchMeta(videoId);
+    if (meta.title) title = meta.title;
+    if (meta.isLive) isLive = true;
+    else isLive = false;
+  }
+
+  // 3) Always scan recent RSS for a true live stream (covers consent + stale /live redirect)
+  if (channelId && !isLive) {
+    const recent = await ytRssRecent(channelId, 8);
+    for (const item of recent) {
+      if (!item.videoId) continue;
+      // Skip re-checking the id we already know is offline
+      if (item.videoId === videoId && !isLive) continue;
+      const meta = await ytWatchMeta(item.videoId);
+      if (meta.isLive) {
+        videoId = item.videoId;
+        title = meta.title || item.title || title;
+        isLive = true;
+        source = "rss-live-scan";
+        finalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        break;
+      }
+      // Keep newest non-live as fallback only if we had nothing
+      if (!videoId) {
+        videoId = item.videoId;
+        title = meta.title || item.title || title;
+        source = "rss";
+        isLive = false;
+      }
+    }
+  }
+
+  // 4) RSS fallback when HTML empty and nothing live
+  if (!videoId && channelId) {
+    const rss = await ytRssLatest(channelId);
+    if (rss.videoId) {
+      videoId = rss.videoId;
+      title = rss.title || title;
+      source = "rss";
+      const meta = await ytWatchMeta(videoId);
+      if (meta.title) title = meta.title;
+      isLive = !!meta.isLive;
+    }
+  }
+
+  return { videoId, title, isLive, finalUrl, source, watchUrl };
 }
 
 app.get("/api/youtube/channel-live", async (req, res) => {
@@ -645,73 +756,33 @@ app.get("/api/youtube/channel-live", async (req, res) => {
   const watchUrl = `https://www.youtube.com/@${handle}/live`;
 
   try {
-    let videoId = "";
-    let title = "";
-    let isLive = false;
-    let finalUrl = watchUrl;
-    let source = "";
-
-    // 1) /channel/UC…/live is more reliable than /@handle/live (less consent junk)
-    const pageUrls = [];
-    if (channelId) pageUrls.push(`https://www.youtube.com/channel/${channelId}/live`);
-    pageUrls.push(watchUrl);
-
-    for (const pageUrl of pageUrls) {
-      try {
-        const page = await ytFetch(pageUrl);
-        finalUrl = page.finalUrl;
-        const extracted = extractVideoIdFromHtml(page.html, page.finalUrl);
-        if (extracted.videoId) {
-          videoId = extracted.videoId;
-          title = extracted.title;
-          isLive = extracted.isLive;
-          source = pageUrl;
-          break;
-        }
-      } catch (e) {
-        console.warn("[channel-live] page fetch", pageUrl, e.message);
-      }
-    }
-
-    // 2) RSS latest upload (works when HTML scrape is empty; often the live stream VOD)
-    if (!videoId && channelId) {
-      const rss = await ytRssLatest(channelId);
-      if (rss.videoId) {
-        videoId = rss.videoId;
-        title = rss.title || title;
-        source = "rss";
-      }
-    }
-
-    // 3) Confirm live flag + title from watch page (same player as /live when that id is active)
-    if (videoId) {
-      const meta = await ytWatchMeta(videoId);
-      if (meta.title) title = meta.title;
-      // Only trust isLive from watch page when we could read it; keep earlier true
-      if (meta.isLive) isLive = true;
-      else if (source === "rss") isLive = false;
-      else isLive = meta.isLive;
-    }
+    const resolved = await resolveChannelLive(handle, channelId);
+    const videoId = resolved.videoId || "";
+    const isLive = !!(videoId && resolved.isLive);
 
     // Concrete video embed only — channel live_stream embed is intentionally omitted
     // (YouTube serves a different/blank stream than @handle/live for many channels)
-    const videoEmbed = videoId
-      ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
-      : null;
+    // Only advertise embed when live so clients do not stick on last week's VOD.
+    const videoEmbed =
+      videoId && isLive
+        ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
+        : videoId
+          ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0`
+          : null;
 
     res.json({
       ok: true,
       handle,
       videoId: videoId || null,
       channelId: channelId || null,
-      title: title || null,
-      watchUrl,
+      title: resolved.title || null,
+      watchUrl: resolved.watchUrl || watchUrl,
       embedUrl: videoEmbed,
       videoEmbedUrl: videoEmbed,
       channelEmbedUrl: null,
-      isLive: !!(videoId && isLive),
-      finalUrl,
-      source: source || null,
+      isLive,
+      finalUrl: resolved.finalUrl || watchUrl,
+      source: resolved.source || null,
     });
   } catch (err) {
     res.status(200).json({
