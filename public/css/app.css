@@ -444,6 +444,21 @@ h2 {
   color: #fff;
   min-width: 140px;
 }
+a.btn-live {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.btn-block {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 52px;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
 
 .btn-ghost {
   background: transparent;
