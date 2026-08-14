@@ -106,11 +106,9 @@ app.get("/api/matchday/scoreboard", (req, res) =>
  * Reliable Moblin/OBS scoreboard (NO client JS timers).
  * Full page reload via meta refresh — works when WebViews freeze setInterval.
  *
- * 4-panel rotation over a 2-minute cycle (12 × 10s slots):
- *   slots 0–8 (75%)  → 1) scores totals (main board)
- *   slot  9   (~8%)  → 2) batters totals
- *   slot 10   (~8%)  → 3) bowlers / balls
- *   slot 11   (~8%)  → 4) run-rate graph + RRR needed
+ * Main scoreboard ~83% of a 3-minute cycle; inject one stat for 30s.
+ *   slots 0–14 (150s) → scores
+ *   slots 15–17 (30s) → one of batters / bowlers / run-rate (rotates each cycle)
  *
  * GET /scoreboard
  * GET /scoreboard?matchId=7236091&refresh=10
@@ -122,9 +120,11 @@ const DEFAULT_OVERLAY_MATCH = {
   homeTeam: "Lullington Park CC - 2nd XI",
   awayTeam: "Hilton CC, Derbyshire - 2nd XI",
 };
-/** Seconds per panel; 12 panels = 120s cycle (~75% score) */
+/** 10s refresh; 18 slots = 180s cycle (~83% score, one 30s stat inject). */
 const OVERLAY_SLOT_SECS = 10;
-const OVERLAY_CYCLE_SLOTS = 12;
+const OVERLAY_SCORE_SLOTS = 15;
+const OVERLAY_CYCLE_SLOTS = 18;
+const OVERLAY_STAT_PANELS = ["batters", "bowlers", "runrate"];
 
 function escHtml(s) {
   return String(s ?? "")
@@ -398,15 +398,16 @@ async function fetchMatchForOverlay(matchId, site) {
 }
 
 /**
- * Panel for this moment (12-slot cycle):
- * 0–8 score (75%), 9 batters, 10 bowlers, 11 runrate
+ * Panel for this moment (18 × 10s = 3 min):
+ * 0–14 score (150s), 15–17 one injected stat (30s).
  */
 function overlayPanelIndex(nowMs = Date.now()) {
-  const slot = Math.floor(nowMs / (OVERLAY_SLOT_SECS * 1000)) % OVERLAY_CYCLE_SLOTS;
-  if (slot <= 8) return "score";
-  if (slot === 9) return "batters";
-  if (slot === 10) return "bowlers";
-  return "runrate";
+  const slotMs = OVERLAY_SLOT_SECS * 1000;
+  const cycleMs = OVERLAY_CYCLE_SLOTS * slotMs;
+  const slot = Math.floor(nowMs / slotMs) % OVERLAY_CYCLE_SLOTS;
+  if (slot < OVERLAY_SCORE_SLOTS) return "score";
+  const cycle = Math.floor(nowMs / cycleMs);
+  return OVERLAY_STAT_PANELS[cycle % OVERLAY_STAT_PANELS.length];
 }
 
 /** Run rate from score line e.g. "126 / 4 (27)" → 4.67 */
@@ -422,28 +423,29 @@ function overlayShellCss() {
   return `
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden;
       background: transparent;
     }
-    html { height: 100%; }
+    html { height: 100%; height: 100dvh; }
     body {
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       color: #ecfdf5;
-      min-height: 100vh;
-      min-height: 100dvh;
       width: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      align-items: stretch;
+      height: 100%;
+      height: 100dvh;
       box-sizing: border-box;
     }
-    /* Full-width bar pinned to bottom of the widget window */
+    /* Full-width bar pinned flush to the bottom of the widget */
     .bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
       width: 100%;
       max-width: 100%;
       box-sizing: border-box;
       margin: 0;
-      padding: 12px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+      padding: 10px 14px 8px;
       border-radius: 0;
       background: rgba(6, 20, 13, 0.92);
       border: none;
@@ -713,7 +715,7 @@ function renderRunRatePanel(ctx) {
 }
 
 function renderScoreboardHtml(data, opts = {}) {
-  // Default 10s; 12-slot cycle ≈ 2 minutes (75% score / 3 secondary panels)
+  // Default 10s refresh; 3-minute cycle (~83% score / one 30s stat)
   const refresh = Math.max(8, Math.min(120, Number(opts.refresh) || OVERLAY_SLOT_SECS));
   let panel = opts.panel || overlayPanelIndex();
   // Accept legacy query values
@@ -786,7 +788,7 @@ function renderScoreboardHtml(data, opts = {}) {
 app.get("/scoreboard", async (req, res) => {
   const matchId = String(req.query.matchId || DEFAULT_OVERLAY_MATCH.matchId);
   const site = String(req.query.site || DEFAULT_OVERLAY_MATCH.site);
-  // Default 10s slots · 12-slot cycle (75% score); ?refresh= overrides
+  // Default 10s refresh · 3-minute cycle (~83% score); ?refresh= overrides
   const refresh = Number(req.query.refresh || OVERLAY_SLOT_SECS);
   const allowed = new Set(["score", "batters", "bowlers", "runrate", "stats", "players"]);
   const panel = allowed.has(String(req.query.panel || ""))

@@ -218,6 +218,10 @@ body.live-cam-mode .main.main--overlay {
 }
 
 .live-stage-score .overlay-root {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   min-height: 0;
 }
 
@@ -1131,23 +1135,31 @@ body.player-mode #app {
 
 /* —— Full overlay (OBS / stream kit) —— */
 .overlay-root {
-  min-height: 100vh;
-  min-height: 100dvh;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   background: transparent;
   padding: 0;
+  margin: 0;
 }
 
-/* Score bar for Moblin / OBS browser widget — readable on stream */
+/* Score bar for Moblin / OBS browser widget — flush to bottom of scene */
 .overlay-bar {
-  margin: 0 2% 2.5%;
-  padding: 10px 14px 12px;
-  border-radius: 12px;
-  background: rgba(6, 20, 13, 0.82);
-  border: 1px solid rgba(74, 222, 128, 0.4);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  margin: 0;
+  padding: 10px 14px 8px;
+  border-radius: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(6, 20, 13, 0.92);
+  border: none;
+  border-top: 2px solid rgba(74, 222, 128, 0.55);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   font-family: var(--font);
