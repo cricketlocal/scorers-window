@@ -89,8 +89,8 @@
       /** Optional override for relay host (default: same origin) */
       streamRelayUrl: "",
       clubLabel: "Lullington Park CC",
-      /** Default: Sat 8 Aug 2026 LPCC 2nd XI v Rosehill (update when needed) */
-      selectedMatchId: "7236091",
+      /** Default: Sat 15 Aug 2026 LPCC 2nd XI v Hilton */
+      selectedMatchId: "7236095",
       selectedSite: "https://lpcc.play-cricket.com",
       useDemoWhenIdle: true,
     };

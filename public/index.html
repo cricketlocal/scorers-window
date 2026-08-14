@@ -38,14 +38,19 @@
     (function () {
       var h = String(location.hash || "");
       if (/overlay/i.test(h)) {
-        location.replace("/scoreboard?matchId=7236091&refresh=10");
+        var mid = "7236095";
+        try {
+          var s = JSON.parse(localStorage.getItem("sw-settings-v1") || "{}");
+          if (s.selectedMatchId) mid = String(s.selectedMatchId);
+        } catch (e) {}
+        location.replace("/scoreboard?matchId=" + encodeURIComponent(mid) + "&refresh=10");
       }
     })();
   </script>
-  <script src="/js/demo.js?v=42" defer></script>
-  <script src="/js/hub.js?v=42" defer></script>
-  <script src="/js/overlay.js?v=42" defer></script>
-  <script src="/js/app.js?v=42" defer></script>
+  <script src="/js/demo.js?v=43" defer></script>
+  <script src="/js/hub.js?v=43" defer></script>
+  <script src="/js/overlay.js?v=43" defer></script>
+  <script src="/js/app.js?v=43" defer></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

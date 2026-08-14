@@ -117,10 +117,10 @@ app.get("/api/matchday/scoreboard", (req, res) =>
  * (#/overlay redirects here)
  */
 const DEFAULT_OVERLAY_MATCH = {
-  matchId: "7236091",
+  matchId: "7236095",
   site: "https://lpcc.play-cricket.com",
   homeTeam: "Lullington Park CC - 2nd XI",
-  awayTeam: "Rosehill CC - 1st XI",
+  awayTeam: "Hilton CC, Derbyshire - 2nd XI",
 };
 /** Seconds per panel; 12 panels = 120s cycle (~75% score) */
 const OVERLAY_SLOT_SECS = 10;

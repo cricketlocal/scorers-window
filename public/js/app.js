@@ -83,7 +83,7 @@
         : "https://scorers-window-live.onrender.com";
     // Server HTML + meta refresh (Moblin-proof). Uses selected fixture when set.
     const s = SWHub.loadSettings();
-    const mid = String(s.selectedMatchId || "7236091").trim() || "7236091";
+    const mid = String(s.selectedMatchId || TODAY_SCOREBOARD.matchId).trim() || TODAY_SCOREBOARD.matchId;
     const site = String(s.selectedSite || "").trim();
     let url = `${origin}/scoreboard?matchId=${encodeURIComponent(mid)}&refresh=10`;
     if (site) url += `&site=${encodeURIComponent(site)}`;
@@ -191,33 +191,84 @@
     const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
     const demo = SWHub.getDemoMatch?.();
     let list = liveList.slice();
+    WEEKEND_FIXTURES.forEach((f) => {
+      if (list.some((m) => String(m.id) === String(f.matchId))) return;
+      list.push({
+        id: f.matchId,
+        matchId: f.matchId,
+        site: f.site,
+        homeTeam: f.homeTeam,
+        awayTeam: f.awayTeam,
+        homeScore: "–",
+        awayScore: "–",
+        date: f.date,
+        time: f.time,
+        ground: f.ground,
+        live: false,
+        completed: false,
+        demo: false,
+        status: "upcoming",
+      });
+    });
     if (demo && !list.some((m) => m.id === demo.id)) list = [...list, demo];
     cachedMatches = list;
     return { list, liveList, demo, message: data.message, liveCount: data.liveCount ?? liveList.length };
   }
 
-  /** Today's stream scoreboard: LPCC 2nd XI v Rosehill (Play-Cricket) */
-  const TODAY_SCOREBOARD = {
-    matchId: "7236091",
-    site: "https://lpcc.play-cricket.com",
-    homeTeam: "Lullington Park CC - 2nd XI",
-    awayTeam: "Rosehill CC - 1st XI",
-    date: "Saturday 8 August 2026",
-    time: "13:00",
-    ground: "Edingale Lane - Main Ground",
-  };
+  /** This weekend (Sat 15 Aug 2026) senior fixtures */
+  const WEEKEND_FIXTURES = [
+    {
+      matchId: "7224673",
+      site: "https://lpcc.play-cricket.com",
+      homeTeam: "Alvaston & Boulton CC - 2nd XI",
+      awayTeam: "Lullington Park CC - 1st XI",
+      date: "Saturday 15 August 2026",
+      time: "13:00",
+      ground: "Raygar Arena",
+    },
+    {
+      matchId: "7236095",
+      site: "https://lpcc.play-cricket.com",
+      homeTeam: "Lullington Park CC - 2nd XI",
+      awayTeam: "Hilton CC, Derbyshire - 2nd XI",
+      date: "Saturday 15 August 2026",
+      time: "13:00",
+      ground: "Edingale Lane - Main Ground",
+    },
+    {
+      matchId: "7251074",
+      site: "https://lpcc.play-cricket.com",
+      homeTeam: "Lullington Park CC - 3rd XI",
+      awayTeam: "Tutbury CC - 4th XI",
+      date: "Saturday 15 August 2026",
+      time: "13:30",
+      ground: "Edingale Lane - Second Ground",
+    },
+    {
+      matchId: "7512218",
+      site: "https://lpcc.play-cricket.com",
+      homeTeam: "Penkridge CC - Sunday 2nd XI",
+      awayTeam: "Lullington Park CC - Sunday Lichfield League 1st XI",
+      date: "Sunday 9 August 2026",
+      time: "14:00",
+      ground: "Penkridge C.C.",
+    },
+  ];
+
+  /** Default stream board this weekend: 2nds home v Hilton */
+  const TODAY_SCOREBOARD = WEEKEND_FIXTURES[1];
 
   /**
    * Active overlay match: always re-fetch live scores for the selected id.
    * Shared pick (phone) only chooses WHICH match — not frozen scores.
-   * For this match day we lock to 2nd XI v Rosehill unless demo is forced.
+   * Uses the fixture picked on Settings (or shared pick from Match Day).
    */
   async function resolveActiveMatch() {
     const settings = SWHub.loadSettings();
     const demo = SWHub.getDemoMatch?.();
-    let matchId = String(settings.selectedMatchId || "").trim();
-    let site = String(settings.selectedSite || "").trim();
-    let labelSnap = null;
+    let matchId = String(settings.selectedMatchId || TODAY_SCOREBOARD.matchId).trim();
+    let site = String(settings.selectedSite || TODAY_SCOREBOARD.site).trim();
+    let labelSnap = WEEKEND_FIXTURES.find((f) => String(f.matchId) === String(matchId)) || TODAY_SCOREBOARD;
 
     // Shared pick from Live Match feed / Match Day Settings (which game)
     try {
@@ -236,16 +287,6 @@
     } catch {
       /* shared optional */
     }
-
-    // Overlay always uses 2nd XI v Rosehill for this match day
-    matchId = TODAY_SCOREBOARD.matchId;
-    site = TODAY_SCOREBOARD.site;
-    labelSnap = {
-      ...(labelSnap || {}),
-      ...TODAY_SCOREBOARD,
-      matchId: TODAY_SCOREBOARD.matchId,
-    };
-    SWHub.saveSettings({ selectedMatchId: matchId, selectedSite: site });
 
     if (SWDemo?.isDemoId?.(matchId) || matchId === "demo-lpcc" || matchId === "demo") {
       return demo || SWHub.getDemoMatch();
@@ -734,7 +775,12 @@
       refreshMoblinLinks();
     });
 
-    if (!SWHub.loadSettings().selectedMatchId) selectDemoMatch();
+    if (!SWHub.loadSettings().selectedMatchId) {
+      SWHub.saveSettings({
+        selectedMatchId: TODAY_SCOREBOARD.matchId,
+        selectedSite: TODAY_SCOREBOARD.site,
+      });
+    }
     await refreshYoutubeStatus();
     await paintMatches();
     refreshMoblinLinks();
@@ -745,8 +791,12 @@
 
   async function viewOverlay() {
     // Same URL Moblin already uses (#/overlay) → reliable server scoreboard
-    location.replace(
-      `/scoreboard?matchId=${encodeURIComponent(TODAY_SCOREBOARD.matchId)}&refresh=10`
+    const s = SWHub.loadSettings();
+    const mid = String(s.selectedMatchId || TODAY_SCOREBOARD.matchId).trim() || TODAY_SCOREBOARD.matchId;
+    const site = String(s.selectedSite || TODAY_SCOREBOARD.site).trim();
+    let dest = `/scoreboard?matchId=${encodeURIComponent(mid)}&refresh=10`;
+    if (site) dest += `&site=${encodeURIComponent(site)}`;
+    location.replace(dest);
     );
   }
 
