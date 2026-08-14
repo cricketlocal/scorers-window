@@ -797,7 +797,6 @@
     let dest = `/scoreboard?matchId=${encodeURIComponent(mid)}&refresh=10`;
     if (site) dest += `&site=${encodeURIComponent(site)}`;
     location.replace(dest);
-    );
   }
 
   /* ——— Router ——— */
