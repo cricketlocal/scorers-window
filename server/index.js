@@ -141,6 +141,21 @@ function shortTeamName(name) {
   return n || "—";
 }
 
+/** Tight broadcast label: LPCC 2nds vs Hilton */
+function tinyTeamName(name) {
+  const s = String(name || "");
+  const xi = /3rd/i.test(s) ? " 3rds" : /2nd/i.test(s) ? " 2nds" : /1st/i.test(s) ? " 1sts" : "";
+  if (/lullington/i.test(s)) return `LPCC${xi || " 2nds"}`.trim();
+  if (/hilton/i.test(s)) return "Hilton";
+  const first = s
+    .replace(/,.*$/, "")
+    .replace(/\s*CC\b.*$/i, "")
+    .replace(/\s*-\s*.*$/, "")
+    .trim()
+    .split(/\s+/)[0];
+  return (first || "—") + xi;
+}
+
 function shortPlayerName(name) {
   const n = String(name || "").replace(/\*|&dagger;|†/g, "").trim();
   if (!n) return "—";
@@ -419,6 +434,42 @@ function runRateFromScore(line) {
   return Number(p.runs) / ov;
 }
 
+function badgeFor(name) {
+  const n = String(name || "").toLowerCase();
+  if (n.includes("lullington")) {
+    return "https://s3-eu-west-1.amazonaws.com/p-c2gallery.ecb.co.uk/uploads/website_configuration/badge_image/4125/LPCC_icon2.png";
+  }
+  if (n.includes("hilton")) {
+    return "https://s3-eu-west-1.amazonaws.com/p-c2gallery.ecb.co.uk/uploads/website_configuration/badge_image/3397/hilton.jpg";
+  }
+  return "";
+}
+
+function crestHtml(name) {
+  const url = badgeFor(name);
+  const letters = String(name || "CC")
+    .replace(/\s*CC\b.*$/i, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase() || "CC";
+  if (url) {
+    return `<span class="crest"><img src="${escHtml(url)}" alt=""></span>`;
+  }
+  return `<span class="crest">${escHtml(letters)}</span>`;
+}
+
+function prettyScore(raw) {
+  const p = parseScoreLine(raw);
+  if (p.runs == null) return { display: "yet to bat", overs: "" };
+  return {
+    display: p.wkts != null ? `${p.runs}/${p.wkts}` : String(p.runs),
+    overs: p.overs || "",
+  };
+}
+
 function overlayShellCss() {
   return `
     html, body {
@@ -426,32 +477,47 @@ function overlayShellCss() {
       overflow: hidden;
       background: transparent;
     }
-    html { height: 100%; height: 100dvh; }
+    html, body { width: 100%; height: 100%; height: 100dvh; }
     body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      color: #ecfdf5;
-      width: 100%;
-      height: 100%;
-      height: 100dvh;
+      font-family: Outfit, "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #fff;
       box-sizing: border-box;
     }
-    /* Full-width bar pinned flush to the bottom of the widget */
     .bar {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
       width: 100%;
-      max-width: 100%;
+      max-width: none;
       box-sizing: border-box;
       margin: 0;
-      padding: 10px 14px 8px;
+      padding: 0;
       border-radius: 0;
-      background: rgba(6, 20, 13, 0.92);
-      border: none;
-      border-top: 2px solid rgba(74, 222, 128, 0.55);
-      box-shadow: 0 -8px 28px rgba(0,0,0,0.5);
+      overflow: hidden;
+      box-shadow: 0 -8px 28px rgba(0,0,0,0.45);
     }
+    .nv {
+      display: grid;
+      grid-template-columns: auto minmax(8rem, 1fr) auto;
+      width: 100%;
+    }
+    .nv-bat { display:flex; align-items:center; gap:12px; padding:14px 16px; background:#1398a2; min-width: 11.5rem; }
+    .nv-mid { display:flex; flex-direction:column; justify-content:center; gap:4px; padding:14px 16px; background:#0b1624; min-width:0; }
+    .nv-bowl { display:flex; align-items:center; justify-content:flex-end; gap:12px; padding:14px 16px; background:#1d3f99; min-width: 10.5rem; }
+    .nv-score { font-size: clamp(2rem, 6.5vw, 3.4rem); font-weight:800; line-height:1; white-space:nowrap; }
+    .nv-overs { font-size: clamp(0.85rem, 2vw, 1.2rem); font-weight:700; opacity:0.92; white-space:nowrap; }
+    .nv-fix { font-size: clamp(0.95rem, 2.2vw, 1.35rem); font-weight:800; letter-spacing:0.04em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .nv-note { font-size: clamp(0.72rem, 1.6vw, 0.95rem); font-weight:600; color:#dbe7f5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .nv-oname { font-size: clamp(0.75rem, 1.6vw, 1rem); font-weight:800; letter-spacing:0.04em; text-align:right; line-height:1.2; white-space:nowrap; }
+    .nv-oscore { font-size: clamp(1.5rem, 4.2vw, 2.5rem); font-weight:800; text-align:right; line-height:1; white-space:nowrap; }
+    .crest { width: clamp(40px, 6vw, 64px); height: clamp(40px, 6vw, 64px); border-radius:50%; background:#fff; color:#12305c; font-weight:900; font-size:0.75rem; display:inline-flex; align-items:center; justify-content:center; overflow:hidden; border:2px solid rgba(255,255,255,0.85); flex:0 0 auto; }
+    .crest img { width:100%; height:100%; object-fit:contain; display:block; }
+    .nv-players { grid-column:1/-1; display:flex; justify-content:space-between; gap:12px; padding:7px 14px 9px; background:#071018; font-size: clamp(0.75rem, 1.8vw, 1.05rem); font-weight:700; }
+    .nv-pl { display:flex; gap:10px; align-items:baseline; min-width:0; flex-wrap:wrap; }
+    .nv-lab { font-size:0.7em; letter-spacing:0.08em; text-transform:uppercase; opacity:0.65; }
+    .nv-pstat { color:#9fd4ff; font-variant-numeric:tabular-nums; }
+    .panel { padding:12px 14px 10px; background:rgba(6,20,13,0.92); border-top:2px solid rgba(74,222,128,0.45); }
     .top {
       display: flex; justify-content: space-between; align-items: center;
       gap: 10px; margin-bottom: 8px;
@@ -611,25 +677,45 @@ function renderRunRateGraph(ctx, opts = {}) {
 }
 
 function renderScorePanel(ctx) {
-  const { home, away, hs, as, badge, status, updated } = ctx;
+  const { batName, otherName, batScore, otherScore, note, batters, bowlers, live } = ctx;
+  const batHtml = batters.length
+    ? batters
+        .map(
+          (b, i) =>
+            `<span>${escHtml(b.name)}${i === 0 ? "*" : ""}</span><span class="nv-pstat">${escHtml(b.runs)}${
+              b.balls !== "—" ? ` (${escHtml(b.balls)})` : ""
+            }</span>`
+        )
+        .join("")
+    : `<span>Waiting for batters</span>`;
+  const bowl = bowlers[0];
+  const bowlHtml = bowl
+    ? `<span>${escHtml(bowl.name)}</span><span class="nv-pstat">${escHtml(bowl.figures)} · ${escHtml(bowl.overs)}ov</span>`
+    : `<span>Waiting for bowler</span>`;
   return `
-    <div class="top">
-      <span class="live">${escHtml(badge)}</span>
-      <span class="status">${escHtml(status)}</span>
-    </div>
-    <div class="teams">
-      <div>
-        <div class="name">${escHtml(home)}</div>
-        <div class="score">${escHtml(hs)}</div>
+    <div class="nv">
+      <div class="nv-bat">
+        ${crestHtml(batName)}
+        <div>
+          <div class="nv-score">${escHtml(batScore.display)}</div>
+          <div class="nv-overs">${escHtml(batScore.overs || (live ? "LIVE" : ""))}</div>
+        </div>
       </div>
-      <div class="vs">VS</div>
-      <div class="away">
-        <div class="name">${escHtml(away)}</div>
-        <div class="score">${escHtml(as)}</div>
+      <div class="nv-mid">
+        <div class="nv-fix">${escHtml(String(ctx.homeShort || ctx.home || "").toUpperCase())} vs ${escHtml(String(ctx.awayShort || ctx.away || "").toUpperCase())}</div>
+        <div class="nv-note">${escHtml(note)}</div>
       </div>
-    </div>
-    <div class="foot">
-      <span>${escHtml(updated)}</span>
+      <div class="nv-bowl">
+        <div>
+          <div class="nv-oname">${escHtml(String(ctx.otherShort || otherName || "").toUpperCase())}</div>
+          <div class="nv-oscore">${escHtml(otherScore.display)}</div>
+        </div>
+        ${crestHtml(otherName)}
+      </div>
+      <div class="nv-players">
+        <div class="nv-pl"><span class="nv-lab">Bat</span>${batHtml}</div>
+        <div class="nv-pl"><span class="nv-lab">Bowl</span>${bowlHtml}</div>
+      </div>
     </div>`;
 }
 
@@ -649,13 +735,15 @@ function renderBattersPanel(ctx) {
         .join("")
     : `<div class="muted">Waiting for batters…</div>`;
   return `
+    <div class="panel">
     <div class="top">
       <span class="live players">BATTERS</span>
       <span class="status">${escHtml(status)}</span>
     </div>
     <div class="panel-sub">${escHtml(home)} vs ${escHtml(away)}</div>
     <div class="plist-solo">${batHtml}</div>
-    <div class="foot"><span>${escHtml(updated)}</span></div>`;
+    <div class="foot"><span>${escHtml(updated)}</span></div>
+    </div>`;
 }
 
 function renderBowlersPanel(ctx) {
@@ -676,13 +764,15 @@ function renderBowlersPanel(ctx) {
         .join("")
     : `<div class="muted">Waiting for bowlers…</div>`;
   return `
+    <div class="panel">
     <div class="top">
       <span class="live players">BOWLERS</span>
       <span class="status">${escHtml(status)}</span>
     </div>
     <div class="panel-sub">${escHtml(home)} vs ${escHtml(away)}</div>
     <div class="plist-solo">${bowlHtml}</div>
-    <div class="foot"><span>${escHtml(updated)}</span></div>`;
+    <div class="foot"><span>${escHtml(updated)}</span></div>
+    </div>`;
 }
 
 function renderRunRatePanel(ctx) {
@@ -705,13 +795,15 @@ function renderRunRatePanel(ctx) {
         </div>`
       : `<div class="panel-sub">RRR shows in the second innings when a target is known.</div>`;
   return `
+    <div class="panel">
     <div class="top">
       <span class="live stats">RUN RATE</span>
       <span class="status">${escHtml(status)}</span>
     </div>
     ${chaseBits}
     ${renderRunRateGraph(ctx, { showRrr: true })}
-    <div class="foot"><span>${escHtml(updated)}</span></div>`;
+    <div class="foot"><span>${escHtml(updated)}</span></div>
+    </div>`;
 }
 
 function renderScoreboardHtml(data, opts = {}) {
@@ -728,6 +820,19 @@ function renderScoreboardHtml(data, opts = {}) {
   const live = !!(data.live || data.summary?.live);
   const status = data.status || data.summary?.status || (live ? "Match In Progress" : "Scoreboard");
   const badge = live ? "LIVE" : "MATCH";
+  const innTeam = String(currentInnings(data)?.team || "").toLowerCase();
+  const homeFull = data.homeTeam || DEFAULT_OVERLAY_MATCH.homeTeam;
+  const awayFull = data.awayTeam || DEFAULT_OVERLAY_MATCH.awayTeam;
+  let batIsHome = true;
+  if (innTeam && innTeam.includes(String(awayFull).toLowerCase().split(/\s+/)[0])) batIsHome = false;
+  else if (as && as !== "—" && (!hs || hs === "—")) batIsHome = false;
+  const batName = batIsHome ? homeFull : awayFull;
+  const otherName = batIsHome ? awayFull : homeFull;
+  const batScore = prettyScore(batIsHome ? hs : as);
+  const otherScore = prettyScore(batIsHome ? as : hs);
+  const note = live
+    ? `${tinyTeamName(batName)} batting · ${status}`
+    : status;
   const updated = new Date().toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -740,8 +845,8 @@ function renderScoreboardHtml(data, opts = {}) {
   const homeRr = runRateFromScore(hs);
   const awayRr = runRateFromScore(as);
   const chase = extractChaseInfo(data, hs, as);
-  const homeShort = String(home).split(/\s+/).slice(0, 2).join(" ") || "Home";
-  const awayShort = String(away).split(/\s+/).slice(0, 2).join(" ") || "Away";
+  const homeShort = tinyTeamName(homeFull);
+  const awayShort = tinyTeamName(awayFull);
 
   const ctx = {
     home,
@@ -755,10 +860,17 @@ function renderScoreboardHtml(data, opts = {}) {
     chase,
     badge,
     status,
+    live,
     mid,
     updated,
     batters,
     bowlers,
+    batName,
+    otherName,
+    otherShort: tinyTeamName(otherName),
+    batScore,
+    otherScore,
+    note,
   };
 
   let bodyInner = "";
