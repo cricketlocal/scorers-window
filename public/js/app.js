@@ -181,6 +181,58 @@
     return d;
   }
 
+  /** Parse Play-Cricket date labels like "Saturday 22 August 2026" */
+  function parseFixtureDate(label) {
+    const s = String(label || "").trim();
+    if (!s) return null;
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return new Date(t);
+    const m = s.match(/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
+    if (!m) return null;
+    const months = {
+      january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+      july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+    };
+    const d = new Date(Number(m[3]), months[m[2].toLowerCase()], Number(m[1]));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function startOfLocalDay(d = new Date()) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  function isSeniorSide(teamLabel = "") {
+    const s = String(teamLabel || "");
+    if (/under\s*\d|u\s*\d|kwik|incrediball|softball|women/i.test(s)) return false;
+    return /\b(?:1st|2nd|3rd|4th|xi|sunday)\b/i.test(s);
+  }
+
+  function fixtureToMatchRow(f) {
+    const id = String(f.id || f.matchId || "");
+    return {
+      id,
+      matchId: id,
+      site: f.site || "https://lpcc.play-cricket.com",
+      homeTeam: f.homeTeam || "Home",
+      awayTeam: f.awayTeam || "Away",
+      homeScore: f.homeScore || "–",
+      awayScore: f.awayScore || "–",
+      date: f.date || "",
+      time: f.time || "",
+      ground: f.ground || "",
+      live: !!(f.live || f.status === "live"),
+      completed: !!(f.completed || /result|won|lost|draw|tied/i.test(String(f.status || ""))),
+      demo: false,
+      status: f.status || "upcoming",
+      competition: f.divisionName || f.competition || "",
+      senior: isSeniorSide(f.homeTeam) || isSeniorSide(f.awayTeam),
+    };
+  }
+
+  /**
+   * Live hub matches + LPCC fixtures for the next ~14 days (this week / next weekend).
+   * No longer depends on a hard-coded weekend list alone.
+   */
   async function loadMatches() {
     let data = { matches: [], message: null, liveCount: 0 };
     try {
@@ -191,72 +243,102 @@
     const liveList = (data.matches || []).map((m) => SWHub.normaliseMatch(m)).filter((m) => m?.id);
     const demo = SWHub.getDemoMatch?.();
     let list = liveList.slice();
-    WEEKEND_FIXTURES.forEach((f) => {
-      if (list.some((m) => String(m.id) === String(f.matchId))) return;
-      list.push({
-        id: f.matchId,
-        matchId: f.matchId,
-        site: f.site,
-        homeTeam: f.homeTeam,
-        awayTeam: f.awayTeam,
-        homeScore: "–",
-        awayScore: "–",
-        date: f.date,
-        time: f.time,
-        ground: f.ground,
-        live: false,
-        completed: false,
-        demo: false,
-        status: "upcoming",
+
+    // Club fixtures from Play-Cricket (this week + next)
+    let clubFixtures = [];
+    try {
+      const club = await SWHub.fetchClubMatches?.(
+        "Lullington Park CC",
+        "https://lpcc.play-cricket.com",
+        false
+      );
+      clubFixtures = Array.isArray(club?.fixtures) ? club.fixtures : [];
+    } catch (e) {
+      console.warn("[settings] club fixtures", e.message || e);
+    }
+
+    const today = startOfLocalDay();
+    const horizon = new Date(today);
+    horizon.setDate(horizon.getDate() + 14);
+
+    const upcoming = clubFixtures
+      .map(fixtureToMatchRow)
+      .filter((m) => m.id)
+      .filter((m) => {
+        const d = parseFixtureDate(m.date);
+        if (!d) return true; // keep undated rather than drop
+        const day = startOfLocalDay(d);
+        return day >= today && day <= horizon;
+      })
+      .sort((a, b) => {
+        // Senior first, then by date
+        if (a.senior !== b.senior) return a.senior ? -1 : 1;
+        const da = parseFixtureDate(a.date)?.getTime() || 0;
+        const db = parseFixtureDate(b.date)?.getTime() || 0;
+        return da - db || String(a.time || "").localeCompare(String(b.time || ""));
       });
+
+    upcoming.forEach((m) => {
+      if (list.some((x) => String(x.id) === String(m.id))) return;
+      list.push(m);
     });
+
+    // Fallback if club API empty (offline / rate limit)
+    if (!upcoming.length) {
+      WEEKEND_FIXTURES.forEach((f) => {
+        if (list.some((m) => String(m.id) === String(f.matchId))) return;
+        list.push(fixtureToMatchRow({ ...f, id: f.matchId }));
+      });
+    }
+
     if (demo && !list.some((m) => m.id === demo.id)) list = [...list, demo];
     cachedMatches = list;
-    return { list, liveList, demo, message: data.message, liveCount: data.liveCount ?? liveList.length };
+    const msg =
+      list.filter((m) => !m.demo).length
+        ? data.message
+        : data.message || "No fixtures found for the next two weeks.";
+    return {
+      list,
+      liveList,
+      demo,
+      message: msg,
+      liveCount: data.liveCount ?? liveList.length,
+    };
   }
 
-  /** This weekend (Sat 15 Aug 2026) senior fixtures */
+  /** Fallback if club API fails — Sat 22 Aug 2026 senior XIs */
   const WEEKEND_FIXTURES = [
     {
-      matchId: "7224673",
+      matchId: "7224679",
       site: "https://lpcc.play-cricket.com",
-      homeTeam: "Alvaston & Boulton CC - 2nd XI",
-      awayTeam: "Lullington Park CC - 1st XI",
-      date: "Saturday 15 August 2026",
-      time: "13:00",
-      ground: "Raygar Arena",
-    },
-    {
-      matchId: "7236095",
-      site: "https://lpcc.play-cricket.com",
-      homeTeam: "Lullington Park CC - 2nd XI",
-      awayTeam: "Hilton CC, Derbyshire - 2nd XI",
-      date: "Saturday 15 August 2026",
+      homeTeam: "Lullington Park CC - 1st XI",
+      awayTeam: "Winshill CC - 1st XI",
+      date: "Saturday 22 August 2026",
       time: "13:00",
       ground: "Edingale Lane - Main Ground",
     },
     {
-      matchId: "7251074",
+      matchId: "7236103",
       site: "https://lpcc.play-cricket.com",
-      homeTeam: "Lullington Park CC - 3rd XI",
-      awayTeam: "Tutbury CC - 4th XI",
-      date: "Saturday 15 August 2026",
-      time: "13:30",
-      ground: "Edingale Lane - Second Ground",
+      homeTeam: "Spondon CC - 4th XI",
+      awayTeam: "Lullington Park CC - 2nd XI",
+      date: "Saturday 22 August 2026",
+      time: "13:00",
+      ground: "The HSG Oval",
     },
     {
-      matchId: "7512218",
+      matchId: "7251079",
       site: "https://lpcc.play-cricket.com",
-      homeTeam: "Penkridge CC - Sunday 2nd XI",
-      awayTeam: "Lullington Park CC - Sunday Lichfield League 1st XI",
-      date: "Sunday 9 August 2026",
-      time: "14:00",
-      ground: "Penkridge C.C.",
+      homeTeam: "Yoxall CC - 2nd XI",
+      awayTeam: "Lullington Park CC - 3rd XI",
+      date: "Saturday 22 August 2026",
+      time: "13:30",
+      ground: "",
     },
   ];
 
-  /** Default stream board this weekend: 2nds home v Hilton */
-  const TODAY_SCOREBOARD = WEEKEND_FIXTURES[1];
+  /** Default stream board this weekend: 1sts home v Winshill */
+  const TODAY_SCOREBOARD = WEEKEND_FIXTURES[0];
 
   /**
    * Active overlay match: always re-fetch live scores for the selected id.
@@ -647,7 +729,7 @@
               <button type="button" class="match-item${sel}" data-id="${escAttr(m.id)}" data-site="${escAttr(m.site || "")}" data-demo="${m.demo ? "1" : "0"}">
                 <span class="teams">${esc(m.homeTeam)} vs ${esc(m.awayTeam)}</span>
                 <span class="scores">${esc(m.homeScore)} · ${esc(m.awayScore)}</span>
-                <span class="meta">${tag} · #${esc(m.id)}${m.date ? " · " + esc(m.date) : ""}</span>
+                <span class="meta">${tag}${m.date ? " · " + esc(m.date) : ""}${m.time ? " · " + esc(m.time) : ""}${m.senior ? " · Senior" : ""}</span>
               </button>`;
           })
           .join("");

@@ -190,6 +190,20 @@
     return getJson("/api/live/hub");
   }
 
+  /**
+   * Club fixtures + results from Play-Cricket (via hub).
+   * @returns {{ fixtures: array, results: array, site: string, club: string }}
+   */
+  async function fetchClubMatches(club = "Lullington Park CC", site = "https://lpcc.play-cricket.com", refresh = false) {
+    const params = new URLSearchParams({
+      club: String(club || "Lullington Park CC"),
+      site: String(site || "https://lpcc.play-cricket.com"),
+      t: String(Date.now()),
+    });
+    if (refresh) params.set("refresh", "1");
+    return getJson(`/api/club/matches?${params}`);
+  }
+
   /** Single match board — always network, cache-busted */
   async function fetchMatch(matchId, site = "") {
     const params = new URLSearchParams({
@@ -443,6 +457,7 @@
   }
 
   global.SWHub = {
+    fetchClubMatches,
     DEFAULT_HUB,
     DEFAULT_LIVE_FEED,
     DEFAULT_CHANNEL_HANDLE,

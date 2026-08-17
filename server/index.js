@@ -101,6 +101,8 @@ app.get("/api/live/status", (req, res) => proxyHub(req, res, "/api/live/status")
 app.get("/api/matchday/scoreboard", (req, res) =>
   proxyHub(req, res, "/api/matchday/scoreboard")
 );
+/** Upcoming/past club fixtures for Settings list (same-origin proxy). */
+app.get("/api/club/matches", (req, res) => proxyHub(req, res, "/api/club/matches"));
 
 /**
  * Reliable Moblin/OBS scoreboard (NO client JS timers).
