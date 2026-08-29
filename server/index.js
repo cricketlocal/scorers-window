@@ -1261,6 +1261,11 @@ console.log(
   `[scorers-window] youtube oauth: ${youtubeOauth.configured() ? "configured" : "not configured (set YOUTUBE_CLIENT_ID/SECRET)"}`
 );
 
+app.get("/open-moblin", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.join(PUBLIC, "open-moblin.html"));
+});
+
 app.use(
   express.static(PUBLIC, {
     maxAge: process.env.NODE_ENV === "production" ? "60s" : 0,

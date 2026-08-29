@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a1f14" />
+  <meta name="apple-mobile-web-app-capable" content="no" />
+  <title>Open Moblin · Scorers Window</title>
+  <link rel="stylesheet" href="/css/app.css" />
+  <style>
+    .open-moblin { max-width: 420px; margin: 0 auto; padding: 20px 16px 40px; text-align: center; }
+    .open-moblin h1 { margin: 0 0 8px; font-size: 1.5rem; }
+    .open-moblin .lead { color: var(--muted); margin: 0 0 18px; }
+    .open-moblin .qr-box { display: inline-block; padding: 12px; background: #fff; border-radius: 16px; margin: 12px 0; }
+    .open-moblin .qr-box > div { width: 196px; height: 196px; }
+    .open-moblin ol { text-align: left; color: var(--muted); font-size: 0.9rem; line-height: 1.45; padding-left: 1.2rem; }
+  </style>
+</head>
+<body>
+  <div class="open-moblin">
+    <h1>Open Moblin</h1>
+    <p class="lead" id="lead">Tap the button. On the iPhone, Moblin asks to import settings — tap <strong>Import settings</strong>.</p>
+    <button type="button" class="btn btn-live btn-block" id="btn-open">Open Moblin now</button>
+    <p class="muted" id="status" style="margin:12px 0 8px;font-size:0.85rem"></p>
+    <div class="qr-box"><div id="qr"></div></div>
+    <p class="muted" style="font-size:0.8rem;margin:0 0 16px">On a computer: scan this with the iPhone <strong>Camera</strong> app.</p>
+    <ol>
+      <li>Install <a href="https://apps.apple.com/app/moblin/id6466745933">Moblin</a> if you have not already.</li>
+      <li>Tap Open (or scan). Confirm <strong>Import settings</strong>.</li>
+      <li>First time only: Scenes → Widgets → Add Browser → paste the scoreboard URL (copied).</li>
+    </ol>
+    <p style="margin-top:18px"><a href="/#/settings">Back to setup</a></p>
+  </div>
+  <script src="/js/qrcode.min.js"></script>
+  <script src="/js/hub.js?v=46"></script>
+  <script src="/js/moblin.js?v=46"></script>
+  <script>
+    (function () {
+      const M = window.SWMoblin;
+      const s = window.SWHub ? SWHub.loadSettings() : {};
+      const origin = location.origin;
+      const mid = String(s.selectedMatchId || "7236095");
+      const site = String(s.selectedSite || "").trim();
+      let overlay = origin + "/scoreboard?matchId=" + encodeURIComponent(mid) + "&refresh=10";
+      if (site) overlay += "&site=" + encodeURIComponent(site);
+      const payload = M.payload({
+        clubLabel: s.clubLabel,
+        streamKey: s.youtubeStreamKey,
+        overlayUrl: overlay,
+      });
+      const deep = M.deepLink(payload);
+      M.drawQr(document.getElementById("qr"), deep);
+      const status = document.getElementById("status");
+      if (!s.youtubeStreamKey) {
+        status.textContent = "No YouTube stream key saved yet — Moblin will still get the scoreboard URL.";
+      } else {
+        status.textContent = "YouTube stream + scoreboard ready to import.";
+      }
+      if (M.isStandalone()) {
+        document.getElementById("lead").innerHTML =
+          "Home-screen apps cannot open Moblin. Open this page in <strong>Safari</strong>, or scan the QR with Camera.";
+      }
+      function go() {
+        try { navigator.clipboard.writeText(overlay); } catch (e) {}
+        M.launch(deep);
+      }
+      document.getElementById("btn-open").addEventListener("click", go);
+      // If this navigation itself was a tap from Settings, try once.
+      if (M.isIos() && !M.isStandalone() && /from=tap/.test(location.search)) {
+        go();
+      }
+    })();
+  </script>
+</body>
+</html>

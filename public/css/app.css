@@ -950,6 +950,24 @@ html.obs-capture .main.main--overlay {
   line-height: 1.35;
 }
 
+.moblin-qr-wrap {
+  margin: 4px 0 0;
+  text-align: center;
+}
+.moblin-qr {
+  display: inline-block;
+  padding: 10px;
+  background: #fff;
+  border-radius: 14px;
+  line-height: 0;
+}
+.moblin-qr img,
+.moblin-qr canvas,
+.moblin-qr table {
+  display: block;
+  margin: 0 auto;
+}
+
 .btn-watch-live {
   display: flex;
   align-items: center;

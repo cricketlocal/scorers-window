@@ -92,24 +92,18 @@
 
   const YT_RTMP = "rtmp://a.rtmp.youtube.com/live2";
 
-  /** Moblin import deep link (YouTube RTMP stream + browser scoreboard). */
-  function buildMoblinDeepLink() {
+  function moblinPayload() {
     const s = SWHub.loadSettings();
-    const key = String(s.youtubeStreamKey || "").trim();
-    const name = String(s.clubLabel || "Lullington Live").trim() || "Lullington Live";
-    const rtmpBase = String(s.rtmpBase || YT_RTMP).replace(/\/+$/, "");
-    const payload = {
-      streams: [
-        {
-          name,
-          url: key ? `${rtmpBase}/${key}` : rtmpBase,
-          selected: true,
-          video: { codec: "H.264/AVC" },
-        },
-      ],
-      webBrowser: { home: overlayUrl() },
-    };
-    return `moblin://?${encodeURIComponent(JSON.stringify(payload))}`;
+    return SWMoblin.payload({
+      clubLabel: s.clubLabel,
+      streamKey: s.youtubeStreamKey,
+      overlayUrl: overlayUrl(),
+      rtmpBase: s.rtmpBase || YT_RTMP,
+    });
+  }
+
+  function buildMoblinDeepLink() {
+    return SWMoblin.deepLink(moblinPayload());
   }
 
   async function copyText(text, okMsg) {
@@ -582,7 +576,7 @@
       <div class="settings-page setup-page">
         <header class="setup-hero">
           <h1>Match day setup</h1>
-          <p class="lead">One page for fixture, YouTube, and Moblin overlay. Select a match to drive scores and the live stream title.</p>
+          <p class="lead">Pick today’s match, save the YouTube key, then tap <strong>Open Moblin</strong>. That’s the whole setup.</p>
         </header>
 
         <div class="card setup-card">
@@ -637,22 +631,26 @@
           <hr class="setup-divider" />
 
           <div class="setup-section" id="section-overlay">
-            <div class="setup-step"><span class="setup-num">3</span><h2>Moblin</h2></div>
-            <p class="muted setup-hint">
-              <strong>Import to Moblin</strong> opens the app with your stream key + scoreboard browser widget.
-              Or copy the overlay URL into a Browser source manually. Full width, bottom of scene.
+            <div class="setup-step"><span class="setup-num">3</span><h2>Open Moblin</h2></div>
+            <p class="muted setup-hint" id="moblin-hint">
+              On the broadcast iPhone, tap the red button. Moblin asks <strong>Import settings?</strong> — tap Import.
+              On a computer, scan the QR with the iPhone Camera app.
             </p>
-            <div class="row-actions" style="margin-bottom:12px">
-              <a class="btn btn-live btn-block" id="btn-open-moblin" href="#">Import to Moblin</a>
+            <button type="button" class="btn btn-live btn-block" id="btn-open-moblin">Open Moblin now</button>
+            <p class="muted" id="moblin-status" style="margin:10px 0 8px;font-size:0.82rem"></p>
+            <div class="moblin-qr-wrap" id="moblin-qr-wrap">
+              <div class="moblin-qr" id="moblin-qr"></div>
+              <p class="muted" style="margin:8px 0 0;font-size:0.78rem">Scan with Camera if the button does nothing.</p>
             </div>
-            <div class="row-actions" style="margin-bottom:12px">
-              <button type="button" class="btn btn-sm" id="btn-copy-moblin">Copy Moblin link</button>
-              <button type="button" class="btn btn-sm btn-primary" id="btn-copy-overlay">Copy overlay URL</button>
-              <a class="btn btn-sm btn-ghost" id="btn-preview-overlay" href="${esc(url)}" target="_blank" rel="noopener">Preview scoreboard</a>
+            <div class="row-actions" style="margin:12px 0">
+              <a class="btn btn-sm" href="https://apps.apple.com/app/moblin/id6466745933" target="_blank" rel="noopener">Get Moblin</a>
+              <button type="button" class="btn btn-sm btn-primary" id="btn-copy-overlay">Copy scoreboard URL</button>
+              <a class="btn btn-sm btn-ghost" id="btn-preview-overlay" href="${esc(url)}" target="_blank" rel="noopener">Preview</a>
             </div>
             <p class="mono obs-url-box" id="overlay-url-box">${esc(url)}</p>
-            <p class="muted" style="margin:8px 0 0;font-size:0.8rem" id="moblin-hint">
-              Save a YouTube stream key in step 2 first so Moblin gets the RTMP destination.
+            <p class="muted" style="margin:8px 0 0;font-size:0.78rem;line-height:1.4">
+              First time only, if scores are missing on stream: Moblin → Settings → Scenes → Widgets →
+              Add <strong>Browser</strong> → paste the scoreboard URL. Full width, bottom of the scene.
             </p>
           </div>
         </div>
@@ -772,41 +770,51 @@
     document.getElementById("btn-refresh-matches")?.addEventListener("click", () => paintMatches());
     function refreshMoblinLinks() {
       const deep = buildMoblinDeepLink();
-      const a = document.getElementById("btn-open-moblin");
-      if (a) a.setAttribute("href", deep);
       const box = document.getElementById("overlay-url-box");
       if (box) box.textContent = overlayUrl();
       const prev = document.getElementById("btn-preview-overlay");
       if (prev) prev.setAttribute("href", overlayUrl());
-      const hint = document.getElementById("moblin-hint");
       const hasKey = !!(SWHub.loadSettings().youtubeStreamKey || "").trim();
-      if (hint) {
-        hint.textContent = hasKey
-          ? "Import to Moblin uses your saved stream key + current scoreboard URL."
-          : "Save a YouTube stream key in step 2 first so Moblin gets the RTMP destination.";
+      const status = document.getElementById("moblin-status");
+      const hint = document.getElementById("moblin-hint");
+      if (SWMoblin.isStandalone()) {
+        if (hint) {
+          hint.innerHTML =
+            "This home-screen app cannot open Moblin. Open Settings in <strong>Safari</strong>, or scan the QR with Camera.";
+        }
       }
+      if (status) {
+        status.textContent = hasKey
+          ? "Ready: YouTube destination + live scoreboard URL."
+          : "Scoreboard URL will import. Save a stream key in step 2 so Moblin can go live to YouTube.";
+      }
+      SWMoblin.drawQr(document.getElementById("moblin-qr"), deep);
     }
 
     document.getElementById("btn-open-moblin")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      persistYoutubeFields();
       refreshMoblinLinks();
       const deep = buildMoblinDeepLink();
-      const a = e.currentTarget;
-      if (a) a.setAttribute("href", deep);
       const hasKey = !!(SWHub.loadSettings().youtubeStreamKey || "").trim();
-      if (!hasKey) {
-        // Still open Moblin with overlay; warn about key
-        toast("Opening Moblin — add stream key in step 2 for YouTube RTMP");
-      } else {
-        toast("Opening Moblin…");
+      try {
+        navigator.clipboard.writeText(overlayUrl());
+      } catch {
+        /* ignore */
       }
-      // Let default navigation to moblin:// happen
-    });
-    document.getElementById("btn-copy-moblin")?.addEventListener("click", () => {
-      refreshMoblinLinks();
-      copyText(buildMoblinDeepLink(), "Moblin import link copied");
+      if (SWMoblin.isStandalone()) {
+        toast("Scan the QR with Camera — home-screen apps cannot open Moblin");
+        return;
+      }
+      if (!SWMoblin.isIos()) {
+        toast("On this computer: scan the QR with the iPhone Camera app");
+        return;
+      }
+      toast(hasKey ? "Opening Moblin — tap Import settings" : "Opening Moblin with scoreboard URL");
+      SWMoblin.launch(deep);
     });
     document.getElementById("btn-copy-overlay")?.addEventListener("click", () => {
-      copyText(overlayUrl(), "Overlay URL copied — paste into Moblin Browser widget");
+      copyText(overlayUrl(), "Scoreboard URL copied — paste into Moblin Browser widget");
     });
     document.getElementById("btn-yt-push")?.addEventListener("click", async () => {
       const set = SWHub.loadSettings();
@@ -835,10 +843,11 @@
       }
       refreshYoutubeStatus();
     });
-    document.getElementById("btn-save-yt")?.addEventListener("click", () => {
+    function persistYoutubeFields(opts) {
+      const silent = !!(opts && opts.silent);
       let streamKey = String(document.getElementById("youtubeStreamKey")?.value || "").trim();
       if (SWHub.looksLikeUrlNotStreamKey?.(streamKey)) {
-        toast("That was a YouTube link — paste the Stream KEY only");
+        if (!silent) toast("That was a YouTube link — paste the Stream KEY only");
         streamKey = "";
       }
       const clubLabel =
@@ -853,8 +862,19 @@
         youtubeChannelHandle: handle,
         youtubeLiveFeedUrl: `https://www.youtube.com/@${handle}/live`,
       });
+      return { streamKey, clubLabel, handle };
+    }
+
+    document.getElementById("btn-save-yt")?.addEventListener("click", () => {
+      persistYoutubeFields();
       toast("YouTube & club settings saved");
       refreshMoblinLinks();
+    });
+    ["youtubeStreamKey", "clubLabel", "youtubeChannelHandle"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("change", () => {
+        persistYoutubeFields({ silent: true });
+        refreshMoblinLinks();
+      });
     });
 
     if (!SWHub.loadSettings().selectedMatchId) {
