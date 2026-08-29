@@ -108,9 +108,9 @@ app.get("/api/club/matches", (req, res) => proxyHub(req, res, "/api/club/matches
  * Reliable Moblin/OBS scoreboard (NO client JS timers).
  * Full page reload via meta refresh — works when WebViews freeze setInterval.
  *
- * Main scoreboard ~83% of a 3-minute cycle; inject one stat for 30s.
+ * Main scoreboard, then one stat for 10s, then back to scores.
  *   slots 0–14 (150s) → scores
- *   slots 15–17 (30s) → one of batters / bowlers / run-rate (rotates each cycle)
+ *   slot 15 (10s) → one of batters / bowlers / run-rate (rotates each cycle)
  *
  * GET /scoreboard
  * GET /scoreboard?matchId=7236091&refresh=10
@@ -122,10 +122,10 @@ const DEFAULT_OVERLAY_MATCH = {
   homeTeam: "Lullington Park CC - 2nd XI",
   awayTeam: "Hilton CC, Derbyshire - 2nd XI",
 };
-/** 10s refresh; 18 slots = 180s cycle (~83% score, one 30s stat inject). */
+/** 10s refresh; 16 slots = 160s cycle (150s score, one 10s stat). */
 const OVERLAY_SLOT_SECS = 10;
 const OVERLAY_SCORE_SLOTS = 15;
-const OVERLAY_CYCLE_SLOTS = 18;
+const OVERLAY_CYCLE_SLOTS = 16;
 const OVERLAY_STAT_PANELS = ["batters", "bowlers", "runrate"];
 
 function escHtml(s) {
@@ -415,8 +415,8 @@ async function fetchMatchForOverlay(matchId, site) {
 }
 
 /**
- * Panel for this moment (18 × 10s = 3 min):
- * 0–14 score (150s), 15–17 one injected stat (30s).
+ * Panel for this moment (16 × 10s):
+ * 0–14 score (150s), 15 one injected stat (10s) then back to score.
  */
 function overlayPanelIndex(nowMs = Date.now()) {
   const slotMs = OVERLAY_SLOT_SECS * 1000;
@@ -809,7 +809,7 @@ function renderRunRatePanel(ctx) {
 }
 
 function renderScoreboardHtml(data, opts = {}) {
-  // Default 10s refresh; 3-minute cycle (~83% score / one 30s stat)
+  // Default 10s refresh; 150s score then 10s stat
   const refresh = Math.max(8, Math.min(120, Number(opts.refresh) || OVERLAY_SLOT_SECS));
   let panel = opts.panel || overlayPanelIndex();
   // Accept legacy query values
@@ -902,7 +902,7 @@ function renderScoreboardHtml(data, opts = {}) {
 app.get("/scoreboard", async (req, res) => {
   const matchId = String(req.query.matchId || DEFAULT_OVERLAY_MATCH.matchId);
   const site = String(req.query.site || DEFAULT_OVERLAY_MATCH.site);
-  // Default 10s refresh · 3-minute cycle (~83% score); ?refresh= overrides
+  // Default 10s refresh · 150s score then 10s stat; ?refresh= overrides
   const refresh = Number(req.query.refresh || OVERLAY_SLOT_SECS);
   const allowed = new Set(["score", "batters", "bowlers", "runrate", "stats", "players"]);
   const panel = allowed.has(String(req.query.panel || ""))
